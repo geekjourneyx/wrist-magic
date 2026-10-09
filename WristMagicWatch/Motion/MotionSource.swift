@@ -9,7 +9,8 @@ import WristMagicCore
     let queue = OperationQueue(); queue.maxConcurrentOperationCount = 1
     queue.name = "WristMagic.motion"; return queue
   }()
-  private var generation: UInt64 = 0
+  private var delivery = MotionDeliveryGate()
+  private var neutralStart: Double?
   private var callback: ((MotionSample) -> Void)?
   private var calibration: WristCalibration?
   var onError: ((Error) -> Void)?
@@ -19,7 +20,7 @@ import WristMagicCore
   func start(onSample: @escaping (MotionSample) -> Void) throws {
     stop()
     guard manager.isDeviceMotionAvailable else { throw MotionError.unavailable }
-    callback = onSample; let epoch = generation
+    callback = onSample; let epoch = delivery.start()
     manager.deviceMotionUpdateInterval = 1.0 / 50.0
     manager.startDeviceMotionUpdates(using: .xArbitraryZVertical, to: queue) { [weak self] motion, error in
       let sample = motion.map { motion in
@@ -31,19 +32,26 @@ import WristMagicCore
             motion.attitude.quaternion.z, motion.attitude.quaternion.w))
       }
       Task { @MainActor in
-        guard let self, generation == epoch else { return }
+        guard let self, delivery.accepts(epoch) else { return }
         if let error { stop(); onError?(error); return }
         guard let sample, sample.isValid else { return }
-        if calibration == nil { calibration = WristCalibration(neutral: sample.attitude) }
+        if calibration == nil {
+          let magnitude = sqrt(sample.acceleration.x * sample.acceleration.x + sample.acceleration.y * sample.acceleration.y + sample.acceleration.z * sample.acceleration.z)
+          let rotation = sqrt(sample.rotationRate.x * sample.rotationRate.x + sample.rotationRate.y * sample.rotationRate.y + sample.rotationRate.z * sample.rotationRate.z)
+          if magnitude < 1 && rotation < 0.5 {
+            if neutralStart == nil { neutralStart = sample.t }
+            if sample.t - neutralStart! >= 0.4 { calibration = WristCalibration(neutral: sample.attitude) }
+          } else { neutralStart = nil }
+        }
         #if DEBUG
         logger?.append(sample)
         #endif
-        callback?(calibration?.normalize(sample) ?? sample)
+        if let calibration { callback?(calibration.normalize(sample)) }
       }
     }
   }
   func stop() {
-    generation += 1; manager.stopDeviceMotionUpdates(); callback = nil; calibration = nil
+    delivery.stop(); manager.stopDeviceMotionUpdates(); callback = nil; calibration = nil; neutralStart = nil
   }
 }
 #if DEBUG

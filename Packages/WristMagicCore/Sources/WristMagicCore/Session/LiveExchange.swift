@@ -44,3 +44,13 @@ public struct FeedbackRateLimiter: Sendable {
     last = at; return true
   }
 }
+
+/// Samples queued before stop/restart cannot reach UI or a logger after that boundary.
+public struct MotionDeliveryGate: Sendable {
+  private var generation: UInt64 = 0
+  private var active = false
+  public init() {}
+  public mutating func start() -> UInt64 { generation += 1; active = true; return generation }
+  public mutating func stop() { generation += 1; active = false }
+  public func accepts(_ generation: UInt64) -> Bool { active && self.generation == generation }
+}

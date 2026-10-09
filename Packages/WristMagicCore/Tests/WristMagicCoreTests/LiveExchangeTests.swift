@@ -49,4 +49,16 @@ final class LiveExchangeTests: XCTestCase {
     XCTAssertFalse(limiter.accept(at: .nan))
     XCTAssertFalse(limiter.accept(at: 0.1))
   }
+  func testStopIsIdempotentAndRejectsQueuedSamples() {
+    var delivery = MotionDeliveryGate()
+    let original = delivery.start()
+    XCTAssertTrue(delivery.accepts(original))
+    delivery.stop()
+    delivery.stop()
+    XCTAssertFalse(delivery.accepts(original))
+    let restarted = delivery.start()
+    XCTAssertFalse(delivery.accepts(original))
+    XCTAssertTrue(delivery.accepts(restarted))
+  }
+
 }

@@ -120,6 +120,9 @@ struct ReadyView: View {
 struct ResultView: View {
   @Bindable var model: WatchCastModel
   var body: some View {
+    if model.state.phase == .fired {
+      WatchSpellEffect(spell: model.state.spell, reducedMotion: model.settings.reducedMotion)
+    }
     Image(systemName: model.state.phase == .fired ? "sparkles" : "arrow.clockwise")
       .font(.largeTitle).accessibilityHidden(true)
     Text(model.state.phase == .fired ? "已释放" : "就绪时间已结束")
@@ -146,10 +149,10 @@ struct WatchSettingsView: View {
   private func preference(_ key: KeyPath<SettingsPayload, Bool>) -> Binding<Bool> {
     Binding(get: { model.settings[keyPath: key] }, set: { value in
       let current = model.settings
-      model.applySettings(SettingsPayload(revision: current.revision + 1,
+      model.updatePreferences(
         sound: key == \.sound ? value : current.sound,
         haptics: key == \.haptics ? value : current.haptics,
-        reducedMotion: key == \.reducedMotion ? value : current.reducedMotion))
+        reducedMotion: key == \.reducedMotion ? value : current.reducedMotion)
     })
   }
 }

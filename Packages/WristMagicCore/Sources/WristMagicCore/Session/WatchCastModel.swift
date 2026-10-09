@@ -12,6 +12,7 @@ public enum FeedbackEvent: Sendable { case start, ready, released, retry, paused
   public var onFeedback: ((FeedbackEvent) -> Void)?
   public var onMotionStart: (() -> Void)?
   public var onMotionStop: (() -> Void)?
+  public var onSettingsChanged: ((SettingsPayload) -> Void)?
   public var onSoundStop: (() -> Void)?
   private let now: () -> Double
   private var link: (any LiveLink)?
@@ -53,8 +54,15 @@ public enum FeedbackEvent: Sendable { case start, ready, released, retry, paused
   public func disconnect(reason: String) {
     generation += 1; sessionID = UUID(); sequence = 0; connected = false
     permit = nil; readyDeadline = nil; armRequested = false; trigger.reset()
+    let wasPaused = state.phase == .paused
     state = CastReducer.reduce(state, .reset)
+    if wasPaused { state = CastReducer.reduce(state, .pause) }
     onMotionStop?(); onSoundStop?(); message = reason
+  }
+  public func updatePreferences(sound: Bool, haptics: Bool, reducedMotion: Bool) {
+    let value = SettingsPayload(revision: settings.revision + 1, sound: sound, haptics: haptics, reducedMotion: reducedMotion)
+    applySettings(value)
+    onSettingsChanged?(value)
   }
   public func report(_ text: String) { message = text }
   public func applySettings(_ value: SettingsPayload) {
@@ -62,14 +70,15 @@ public enum FeedbackEvent: Sendable { case start, ready, released, retry, paused
     settings = value
     if !value.sound { onSoundStop?() }
   }
-  public func receive(_ envelope: WireEnvelope) {
+  @discardableResult public func receive(_ envelope: WireEnvelope) -> Bool {
     guard connected, envelope.isValid, envelope.sessionID == sessionID,
       envelope.kind == .armGrant, state.phase == .charging, state.charge == 1,
       let grant = try? JSONDecoder().decode(ArmGrantPayload.self, from: envelope.payload),
       grant.permit.spell == state.spell,
-      let duration = PermitTiming.watchReadyDuration(mode: mode, grantValidFor: grant.validFor) else { return }
+      let duration = PermitTiming.watchReadyDuration(mode: mode, grantValidFor: grant.validFor) else { return false }
     permit = grant.permit; readyDeadline = now() + duration
     state = CastReducer.reduce(state, .armed); onFeedback?(.ready); message = "就绪，挥动或轻点施法"
+    return true
   }
   public func tick() {
     if let deadline = readyDeadline, now() >= deadline { send(.timeout) }

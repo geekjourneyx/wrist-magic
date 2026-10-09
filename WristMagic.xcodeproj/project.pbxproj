@@ -3,9 +3,12 @@
 F93DD195237F73E44BF48EB8 = {isa = PBXFileReference;lastKnownFileType = sourcecode.swift;path = "Shared/Connectivity/ForegroundLink.swift";sourceTree = SOURCE_ROOT;};
 02FCC5455942B4C0C96C9010 = {isa = PBXFileReference;lastKnownFileType = sourcecode.swift;path = "Tests/Fixtures/TestFactory.swift";sourceTree = SOURCE_ROOT;};
 6FC6575DFABBBBFB6DC5B8E4 = {isa = PBXFileReference;lastKnownFileType = sourcecode.swift;path = "Tests/Watch/CoreImportTests.swift";sourceTree = SOURCE_ROOT;};
+ECD2BDAADE2DD329C9320369 = {isa = PBXFileReference;lastKnownFileType = sourcecode.swift;path = "Tests/Watch/WatchCastingTests.swift";sourceTree = SOURCE_ROOT;};
 D0E123D9DE8CC5454C3278AB = {isa = PBXFileReference;lastKnownFileType = sourcecode.swift;path = "Tests/iOS/CoreImportTests.swift";sourceTree = SOURCE_ROOT;};
+3B963947A46C305FCA30B544 = {isa = PBXFileReference;lastKnownFileType = sourcecode.swift;path = "Tests/iOS/LiveLinkTests.swift";sourceTree = SOURCE_ROOT;};
 E2574D24FF474D0AD660DE3F = {isa = PBXFileReference;lastKnownFileType = sourcecode.swift;path = "WristMagicWatch/App/WristMagicWatchApp.swift";sourceTree = SOURCE_ROOT;};
 8F58D9299D2910E1EBFF7128 = {isa = PBXFileReference;lastKnownFileType = sourcecode.swift;path = "WristMagicWatch/Casting/WatchLink.swift";sourceTree = SOURCE_ROOT;};
+7B6EB24BF345D6C433F930D5 = {isa = PBXFileReference;lastKnownFileType = sourcecode.swift;path = "WristMagicWatch/Casting/WatchSpellEffect.swift";sourceTree = SOURCE_ROOT;};
 36C729D7FC8278705C8C3E9B = {isa = PBXFileReference;lastKnownFileType = sourcecode.swift;path = "WristMagicWatch/Feedback/HapticPlayer.swift";sourceTree = SOURCE_ROOT;};
 43D184BEAAA70E007309FF5D = {isa = PBXFileReference;lastKnownFileType = sourcecode.swift;path = "WristMagicWatch/Feedback/WatchSoundPlayer.swift";sourceTree = SOURCE_ROOT;};
 38278C4C1E393DD37B9A6A98 = {isa = PBXFileReference;lastKnownFileType = sourcecode.swift;path = "WristMagicWatch/Motion/MotionSource.swift";sourceTree = SOURCE_ROOT;};
@@ -32,10 +35,11 @@ CC086D2F45DE160406D22427 = {isa = PBXNativeTarget;buildConfigurationList = 91245
 DECFB950B0A67EF9E89F017D = {isa = PBXBuildFile;fileRef = F93DD195237F73E44BF48EB8;};
 F967982C4432F1B48931BFFF = {isa = PBXBuildFile;fileRef = E2574D24FF474D0AD660DE3F;};
 6B4C67EF4EC8DC6C39A0136B = {isa = PBXBuildFile;fileRef = 8F58D9299D2910E1EBFF7128;};
+9EC28B27B65967EFA76FF1AA = {isa = PBXBuildFile;fileRef = 7B6EB24BF345D6C433F930D5;};
 22BD9C771DEAA39E23DB7C24 = {isa = PBXBuildFile;fileRef = 36C729D7FC8278705C8C3E9B;};
 8EB62C1A905630F3DE998E83 = {isa = PBXBuildFile;fileRef = 43D184BEAAA70E007309FF5D;};
 7C66F9658DA5D6E333D802C7 = {isa = PBXBuildFile;fileRef = 38278C4C1E393DD37B9A6A98;};
-CFFFF1CC03A7BE6491DA260A = {isa = PBXSourcesBuildPhase;buildActionMask = 2147483647;files = (DECFB950B0A67EF9E89F017D,F967982C4432F1B48931BFFF,6B4C67EF4EC8DC6C39A0136B,22BD9C771DEAA39E23DB7C24,8EB62C1A905630F3DE998E83,7C66F9658DA5D6E333D802C7,);runOnlyForDeploymentPostprocessing = 0;};
+CFFFF1CC03A7BE6491DA260A = {isa = PBXSourcesBuildPhase;buildActionMask = 2147483647;files = (DECFB950B0A67EF9E89F017D,F967982C4432F1B48931BFFF,6B4C67EF4EC8DC6C39A0136B,9EC28B27B65967EFA76FF1AA,22BD9C771DEAA39E23DB7C24,8EB62C1A905630F3DE998E83,7C66F9658DA5D6E333D802C7,);runOnlyForDeploymentPostprocessing = 0;};
 73DB63CE1FB215F4A1BA2D25 = {isa = XCSwiftPackageProductDependency;package = 582681C2EAE02B3F3D399C0C;productName = WristMagicCore;};
 2B844EBBE85D037B1DD9A195 = {isa = PBXBuildFile;productRef = 73DB63CE1FB215F4A1BA2D25;};
 DAEC1575A4AE06AE5E981A07 = {isa = PBXFrameworksBuildPhase;buildActionMask = 2147483647;files = (2B844EBBE85D037B1DD9A195,);runOnlyForDeploymentPostprocessing = 0;};
@@ -46,7 +50,8 @@ E52B9DB2722A270219D88FAF = {isa = XCBuildConfiguration;buildSettings = {SWIFT_VE
 E611C3F3C4C488CCBDAD555E = {isa = PBXFileReference;explicitFileType = wrapper.cfbundle;includeInIndex = 0;path = "WristMagiciOSTests.xctest";sourceTree = BUILT_PRODUCTS_DIR;};
 0F5D009A2BFBE34E35DE6CD0 = {isa = PBXBuildFile;fileRef = 02FCC5455942B4C0C96C9010;};
 E2A17F8D535912874B2D7B3D = {isa = PBXBuildFile;fileRef = D0E123D9DE8CC5454C3278AB;};
-826E47AD4DCE52AC3E51C4FE = {isa = PBXSourcesBuildPhase;buildActionMask = 2147483647;files = (0F5D009A2BFBE34E35DE6CD0,E2A17F8D535912874B2D7B3D,);runOnlyForDeploymentPostprocessing = 0;};
+9F69877031CDFA81BABE41DB = {isa = PBXBuildFile;fileRef = 3B963947A46C305FCA30B544;};
+826E47AD4DCE52AC3E51C4FE = {isa = PBXSourcesBuildPhase;buildActionMask = 2147483647;files = (0F5D009A2BFBE34E35DE6CD0,E2A17F8D535912874B2D7B3D,9F69877031CDFA81BABE41DB,);runOnlyForDeploymentPostprocessing = 0;};
 283C2089D0FD4F24F5B5DF72 = {isa = XCSwiftPackageProductDependency;package = 582681C2EAE02B3F3D399C0C;productName = WristMagicCore;};
 3D248FF599F38BC8275D377A = {isa = PBXBuildFile;productRef = 283C2089D0FD4F24F5B5DF72;};
 485548FE6D17AC3AE4EDDDAA = {isa = PBXFrameworksBuildPhase;buildActionMask = 2147483647;files = (3D248FF599F38BC8275D377A,);runOnlyForDeploymentPostprocessing = 0;};
@@ -59,7 +64,8 @@ E641375C3F45018CA845E9C2 = {isa = XCConfigurationList;buildConfigurations = (542
 94CC816E34935CC3FB64287A = {isa = PBXFileReference;explicitFileType = wrapper.cfbundle;includeInIndex = 0;path = "WristMagicWatchTests.xctest";sourceTree = BUILT_PRODUCTS_DIR;};
 AA2CE6329FCF70D79FC242CD = {isa = PBXBuildFile;fileRef = 02FCC5455942B4C0C96C9010;};
 83642C0B267B9F77503ACBF1 = {isa = PBXBuildFile;fileRef = 6FC6575DFABBBBFB6DC5B8E4;};
-51A9850643B5158DEF62090C = {isa = PBXSourcesBuildPhase;buildActionMask = 2147483647;files = (AA2CE6329FCF70D79FC242CD,83642C0B267B9F77503ACBF1,);runOnlyForDeploymentPostprocessing = 0;};
+B11361503389295B90779AFC = {isa = PBXBuildFile;fileRef = ECD2BDAADE2DD329C9320369;};
+51A9850643B5158DEF62090C = {isa = PBXSourcesBuildPhase;buildActionMask = 2147483647;files = (AA2CE6329FCF70D79FC242CD,83642C0B267B9F77503ACBF1,B11361503389295B90779AFC,);runOnlyForDeploymentPostprocessing = 0;};
 DBFDF03AF0CA947267153316 = {isa = XCSwiftPackageProductDependency;package = 582681C2EAE02B3F3D399C0C;productName = WristMagicCore;};
 D07FE8C26732F600FEB5212E = {isa = PBXBuildFile;productRef = DBFDF03AF0CA947267153316;};
 6D03C3E05EA86DA61FB59991 = {isa = PBXFrameworksBuildPhase;buildActionMask = 2147483647;files = (D07FE8C26732F600FEB5212E,);runOnlyForDeploymentPostprocessing = 0;};
@@ -70,9 +76,9 @@ F821FC6D55ADD756A7ABCF2C = {isa = XCBuildConfiguration;buildSettings = {SWIFT_VE
 40EE3FA3D64237E176C52B9E = {isa = XCConfigurationList;buildConfigurations = (FE40E9B9FA48142A18E4D731,F821FC6D55ADD756A7ABCF2C,);defaultConfigurationIsVisible = 0;defaultConfigurationName = Release;};
 922C8D6522170642CC4B8963 = {isa = PBXNativeTarget;buildConfigurationList = 40EE3FA3D64237E176C52B9E;buildPhases = (51A9850643B5158DEF62090C,6D03C3E05EA86DA61FB59991,);buildRules = ();dependencies = (6BC073558AFC12E92E5BBF68,);name = WristMagicWatchTests;packageProductDependencies = (DBFDF03AF0CA947267153316,);productName = WristMagicWatchTests;productReference = 94CC816E34935CC3FB64287A;productType = "com.apple.product-type.bundle.unit-test";};
 FBDC4F23F93125BBEEAE800C = {isa = PBXGroup;children = (9CDE1EB24F90B69532499099,40A08CD9D1A4F723AF7844B0,E611C3F3C4C488CCBDAD555E,94CC816E34935CC3FB64287A,);name = Products;sourceTree = "<group>";};
-B28B7AF69320201D1CF206EB = {isa = PBXGroup;children = (F93DD195237F73E44BF48EB8,02FCC5455942B4C0C96C9010,6FC6575DFABBBBFB6DC5B8E4,D0E123D9DE8CC5454C3278AB,E2574D24FF474D0AD660DE3F,8F58D9299D2910E1EBFF7128,36C729D7FC8278705C8C3E9B,43D184BEAAA70E007309FF5D,38278C4C1E393DD37B9A6A98,3825892C20508F941003386D,9CD0D9C984971F34A72D0847,FBDC4F23F93125BBEEAE800C,);sourceTree = "<group>";};
+B28B7AF69320201D1CF206EB = {isa = PBXGroup;children = (F93DD195237F73E44BF48EB8,02FCC5455942B4C0C96C9010,6FC6575DFABBBBFB6DC5B8E4,ECD2BDAADE2DD329C9320369,D0E123D9DE8CC5454C3278AB,3B963947A46C305FCA30B544,E2574D24FF474D0AD660DE3F,8F58D9299D2910E1EBFF7128,7B6EB24BF345D6C433F930D5,36C729D7FC8278705C8C3E9B,43D184BEAAA70E007309FF5D,38278C4C1E393DD37B9A6A98,3825892C20508F941003386D,9CD0D9C984971F34A72D0847,FBDC4F23F93125BBEEAE800C,);sourceTree = "<group>";};
 89E1FD6268CC0F221A2BE178 = {isa = XCBuildConfiguration;buildSettings = {CLANG_ENABLE_MODULES = YES; SWIFT_STRICT_CONCURRENCY = complete;};name = Debug;};
 E6DE6C99132752C914FEF632 = {isa = XCBuildConfiguration;buildSettings = {CLANG_ENABLE_MODULES = YES; SWIFT_STRICT_CONCURRENCY = complete;};name = Release;};
 862894B703A6DEDF96A9DD6C = {isa = XCConfigurationList;buildConfigurations = (89E1FD6268CC0F221A2BE178,E6DE6C99132752C914FEF632,);defaultConfigurationIsVisible = 0;defaultConfigurationName = Release;};
-98F54143AB4E86B28C3AFEE0 = {isa = PBXProject;attributes = {LastUpgradeCheck = 1600; TargetAttributes = {922C8D6522170642CC4B8963 = {TestTargetID = 096F13656B19B99E63302EBA;};};};buildConfigurationList = 862894B703A6DEDF96A9DD6C;compatibilityVersion = "Xcode 14.0";developmentRegion = en;hasScannedForEncodings = 0;knownRegions = (en,Base,zh-Hans);mainGroup = B28B7AF69320201D1CF206EB;packageReferences = (582681C2EAE02B3F3D399C0C,);productRefGroup = FBDC4F23F93125BBEEAE800C;projectDirPath = "";projectRoot = "";targets = (CC086D2F45DE160406D22427,096F13656B19B99E63302EBA,1E9434CD93F74AD100DBB8CC,922C8D6522170642CC4B8963,);};
+98F54143AB4E86B28C3AFEE0 = {isa = PBXProject;attributes = {LastUpgradeCheck = 1600; TargetAttributes = {922C8D6522170642CC4B8963 = {TestTargetID = 096F13656B19B99E63302EBA;};1E9434CD93F74AD100DBB8CC = {TestTargetID = CC086D2F45DE160406D22427;};};};buildConfigurationList = 862894B703A6DEDF96A9DD6C;compatibilityVersion = "Xcode 14.0";developmentRegion = en;hasScannedForEncodings = 0;knownRegions = (en,Base,zh-Hans);mainGroup = B28B7AF69320201D1CF206EB;packageReferences = (582681C2EAE02B3F3D399C0C,);productRefGroup = FBDC4F23F93125BBEEAE800C;projectDirPath = "";projectRoot = "";targets = (CC086D2F45DE160406D22427,096F13656B19B99E63302EBA,1E9434CD93F74AD100DBB8CC,922C8D6522170642CC4B8963,);};
 }; rootObject = 98F54143AB4E86B28C3AFEE0;}

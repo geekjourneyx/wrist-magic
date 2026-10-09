@@ -37,6 +37,7 @@ import Foundation
   private func refreshAvailability() {
     gate.available = isReady
     if !isReady { gate.revokePermits() }
+    if !foreground || !trackingNormal { chargedSpell = nil }
   }
   private func envelope<T: Encodable>(_ kind: WireKind, _ payload: T, session: UUID) -> WireEnvelope {
     sequence += 1
