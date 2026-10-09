@@ -2,7 +2,7 @@
 
 /// All writer calls are serialized by the main actor. No application frame queue is retained.
 enum MediaError: Error { case invalidState, invalidPTS, writerFailed, pixelBuffer, invalidClip, unsupported, tracking, casting, gpu, storage, audio }
-@MainActor final class ClipWriter {
+@MainActor final class ClipWriter: ClipWriting {
   enum State { case idle, writing, finishing, finished, failed, cancelled }
   private(set) var state: State = .idle
   let url: URL

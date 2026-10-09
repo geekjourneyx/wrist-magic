@@ -9,6 +9,24 @@ struct ClipRecord: Codable, Sendable, Identifiable {
   let interrupted: Bool
   var reviewed: Bool
 }
+/// Persist only ID-derived filenames; Application Support container paths can change.
+private struct StoredClip: Codable {
+  let id: UUID
+  let filename: String
+  let createdAt: Date
+  let duration: Double
+  let interrupted: Bool
+  let reviewed: Bool
+  init(_ record: ClipRecord) {
+    id = record.id; filename = "\(record.id).mp4"; createdAt = record.createdAt
+    duration = record.duration; interrupted = record.interrupted; reviewed = record.reviewed
+  }
+  func record(in directory: URL) throws -> ClipRecord {
+    guard filename == "\(id).mp4" else { throw MediaError.storage }
+    return ClipRecord(id:id,url:directory.appendingPathComponent(filename),createdAt:createdAt,duration:duration,interrupted:interrupted,reviewed:reviewed)
+  }
+}
+
 /// Real file IO; index is replaced atomically only after moving a validated clip into place.
 @MainActor final class ClipStore {
   let directory: URL
@@ -23,9 +41,18 @@ struct ClipRecord: Codable, Sendable, Identifiable {
     var values = URLResourceValues(); values.isExcludedFromBackup = true
     try excluded.setResourceValues(values)
     let index = self.directory.appendingPathComponent("index.json")
-    if manager.fileExists(atPath:index.path) { records = try JSONDecoder().decode([ClipRecord].self,from:Data(contentsOf:index)) }
-    // Never trust persisted absolute paths or retain orphaned media after a crash.
-    records = records.filter { $0.url.deletingLastPathComponent().standardizedFileURL == self.directory.standardizedFileURL && manager.fileExists(atPath:$0.url.path) }
+    if manager.fileExists(atPath:index.path) {
+      let data = try Data(contentsOf:index)
+      if let relative = try? JSONDecoder().decode([StoredClip].self,from:data) {
+        records = try relative.map { try $0.record(in:self.directory) }
+      } else {
+        // Migrate the old absolute URL schema before orphan cleanup. A container relocation
+        // does not change the clip ID/filename; never follow paths out of this directory.
+        let legacy = try JSONDecoder().decode([ClipRecord].self,from:data)
+        records = try legacy.map { try StoredClip($0).record(in:self.directory) }
+      }
+    }
+    records = records.filter { manager.fileExists(atPath:$0.url.path) }
     let indexed = Set(records.map { $0.url.lastPathComponent })
     for file in try manager.contentsOfDirectory(at:self.directory,includingPropertiesForKeys:nil) where file.pathExtension == "partial" || (file.pathExtension == "mp4" && !indexed.contains(file.lastPathComponent)) {
       try manager.removeItem(at:file)
@@ -33,7 +60,7 @@ struct ClipRecord: Codable, Sendable, Identifiable {
     try persist(records)
   }
   private func persist(_ records: [ClipRecord]) throws {
-    try JSONEncoder().encode(records).write(to:directory.appendingPathComponent("index.json"),options:.atomic)
+    try JSONEncoder().encode(records.map(StoredClip.init)).write(to:directory.appendingPathComponent("index.json"),options:.atomic)
   }
   func commit(tempURL: URL, report: ClipReport, interrupted: Bool = false) throws -> ClipRecord {
     guard report.valid, let digest = report.validatedSHA256, manager.fileExists(atPath:tempURL.path),

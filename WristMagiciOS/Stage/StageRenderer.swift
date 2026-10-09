@@ -3,7 +3,7 @@ import ARKit
 import WristMagicCore
 
 /// Main-actor ownership plus three slots bounds every submitted camera/GPU frame.
-@MainActor final class StageRenderer {
+@MainActor final class StageRenderer: FrameRendering {
   private struct FrameUniforms {
     var viewProjection: simd_float4x4
     var imageUV: simd_float3x3
@@ -34,6 +34,11 @@ import WristMagicCore
     guard CVMetalTextureCacheCreate(nil, nil, device, nil, &cache) == kCVReturnSuccess else { throw MediaError.gpu }
     guard CVPixelBufferPoolCreate(nil, [kCVPixelBufferPoolMinimumBufferCountKey:3] as CFDictionary,
       [kCVPixelBufferWidthKey:720,kCVPixelBufferHeightKey:1280,kCVPixelBufferPixelFormatTypeKey:kCVPixelFormatType_32BGRA,kCVPixelBufferMetalCompatibilityKey:true,kCVPixelBufferIOSurfacePropertiesKey:[:]] as CFDictionary, &pool) == kCVReturnSuccess else { throw MediaError.pixelBuffer }
+    precondition(MemoryLayout<FrameUniforms>.stride == 128)
+    precondition(MemoryLayout<FrameUniforms>.offset(of: \.viewProjection) == 0)
+    precondition(MemoryLayout<FrameUniforms>.offset(of: \.imageUV) == 64)
+    precondition(MemoryLayout<FrameUniforms>.offset(of: \.effectCount) == 112)
+    precondition(MemoryLayout<FrameUniforms>.offset(of: \.cameraKind) == 116)
     precondition(MemoryLayout<EffectParameters>.stride == 64 && MemoryLayout<EffectParameters>.alignment == 16)
   }
   func attach(preview: MTKView) {

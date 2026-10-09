@@ -1,15 +1,24 @@
 import ARKit
 @preconcurrency import AVFoundation
 
+@MainActor protocol ARSessionDriving: AnyObject {
+  var delegate: (any ARSessionDelegate)? { get set }
+  var delegateQueue: DispatchQueue? { get set }
+  var currentFrame: ARFrame? { get }
+  func run(_ configuration: ARConfiguration, options: ARSession.RunOptions)
+  func pause()
+}
+extension ARSession: ARSessionDriving {}
+
 /// Sole owner of the rear camera. UI must request permission before start().
 @MainActor final class ARFrameSource: NSObject, ARSessionDelegate {
-  let session = ARSession()
+  let session: any ARSessionDriving
   var onFrame: ((ARFrame) -> Void)?
   var onTracking: ((Bool) -> Void)?
   var onInterruption: ((Error?) -> Void)?
   private(set) var running = false
   static var supported: Bool { ARWorldTrackingConfiguration.isSupported }
-  override init() { super.init(); session.delegate = self; session.delegateQueue = .main }
+  init(session: any ARSessionDriving = ARSession()) { self.session = session; super.init(); session.delegate = self; session.delegateQueue = .main }
   static func requestPermission() async -> Bool { await AVCaptureDevice.requestAccess(for: .video) }
   func start() throws {
     guard Self.supported else { throw MediaError.unsupported }
@@ -18,7 +27,7 @@ import ARKit
     session.run(config, options: [.resetTracking, .removeExistingAnchors]); running = true
     onTracking?(false)
   }
-  func stop() { guard running else { return }; running = false; session.pause(); onTracking?(false) }
+  func stop() { running = false; session.pause(); onTracking?(false) }
   nonisolated func session(_ session: ARSession, didUpdate frame: ARFrame) {
     MainActor.assumeIsolated {
       guard self.running else { return }
