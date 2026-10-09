@@ -1,7 +1,6 @@
+.DS_Store
 .build/
 DerivedData/
-*.xcresult/
+*.xcuserstate
 xcuserdata/
-.superpowers/
-.DS_Store
-Evidence/runs/
+Evidence/test-results/

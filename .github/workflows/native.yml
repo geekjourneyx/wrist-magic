@@ -1,0 +1,49 @@
+name: Native builds and tests
+on:
+  push:
+    branches: [main, feat/native-mvp]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  native:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record toolchain
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks
+          xcrun simctl list devices available
+      - name: Core tests
+        run: scripts/test-core.sh
+      - name: Build both apps
+        run: |
+          xcodebuild -project WristMagic.xcodeproj -scheme WristMagic-iOS -destination 'generic/platform=iOS Simulator' -configuration Debug CODE_SIGNING_ALLOWED=NO build
+          xcodebuild -project WristMagic.xcodeproj -scheme WristMagic-Watch -destination 'generic/platform=watchOS Simulator' -configuration Debug CODE_SIGNING_ALLOWED=NO build
+      - name: Release builds
+        run: |
+          xcodebuild -project WristMagic.xcodeproj -scheme WristMagic-iOS -configuration Release -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+          xcodebuild -project WristMagic.xcodeproj -scheme WristMagic-Watch -configuration Release -destination 'generic/platform=watchOS Simulator' CODE_SIGNING_ALLOWED=NO build
+      - name: Discover simulator IDs
+        run: |
+          python3 - <<'PY'
+          import json, subprocess, os
+          devices = json.loads(subprocess.check_output(['xcrun','simctl','list','devices','available','-j']))['devices']
+          with open(os.environ['GITHUB_ENV'], 'a') as out:
+              for platform, prefix, name in [('iOS', 'iPhone', 'IOS'), ('watchOS', 'Apple Watch', 'WATCH')]:
+                  candidates = [d for runtime, ds in devices.items() if platform in runtime for d in ds if d['name'].startswith(prefix) and d['isAvailable']]
+                  if not candidates:
+                      raise SystemExit(f'No available {platform} simulator: install the runtime in Xcode')
+                  out.write(f"{name}_SIMULATOR_UDID={candidates[0]['udid']}\n")
+          PY
+      - name: iOS simulator tests
+        run: scripts/test-ios.sh
+      - name: Watch simulator tests
+        run: scripts/test-watch.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-test-results
+          path: Evidence/test-results/*.xcresult
+          if-no-files-found: warn
