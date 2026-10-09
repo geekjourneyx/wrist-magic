@@ -30,6 +30,11 @@ for name in names:
   proxy=obj('watchproxy',val(dict(isa='PBXContainerItemProxy',containerPortal=uid('project'),proxyType='1',remoteGlobalIDString=uid('WristMagicWatch'),remoteInfo='WristMagicWatch')))
   dependencies=[obj('watchdependency',val(dict(isa='PBXTargetDependency',target=uid('WristMagicWatch'),targetProxy=proxy)))]
  settings={'SWIFT_VERSION':'6.0','SDKROOT':'watchos' if watch else 'iphoneos','SUPPORTED_PLATFORMS':q('watchos watchsimulator' if watch else 'iphoneos iphonesimulator'),'TARGETED_DEVICE_FAMILY':q('4' if watch else '1'),'GENERATE_INFOPLIST_FILE':'YES','PRODUCT_NAME':q('$(TARGET_NAME)'),'PRODUCT_BUNDLE_IDENTIFIER':q('io.github.geekjourneyx.wristmagic'+('.watchkitapp' if watch else '')+('.tests' if test else '')),'CODE_SIGN_STYLE':'Automatic','WATCHOS_DEPLOYMENT_TARGET':'10.0' if watch else '10.0','IPHONEOS_DEPLOYMENT_TARGET':'17.0'}
+ if test and watch:
+  host = 'WristMagicWatch'
+  proxy = obj(name+'hostproxy',val(dict(isa='PBXContainerItemProxy',containerPortal=uid('project'),proxyType='1',remoteGlobalIDString=uid(host),remoteInfo=host)))
+  dependencies.append(obj(name+'hostdependency',val(dict(isa='PBXTargetDependency',target=uid(host),targetProxy=proxy))))
+  settings.update({'TEST_HOST':q('$(BUILT_PRODUCTS_DIR)/WristMagicWatch.app/WristMagicWatch'),'BUNDLE_LOADER':q('$(TEST_HOST)')})
  if not test:
   settings.update({'INFOPLIST_KEY_CFBundleDisplayName':q('腕术'),'MARKETING_VERSION':'0.1.0','CURRENT_PROJECT_VERSION':'1'})
   if watch: settings.update({'INFOPLIST_KEY_WKApplication':'YES','INFOPLIST_KEY_WKCompanionAppBundleIdentifier':'io.github.geekjourneyx.wristmagic','INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp':'YES','SKIP_INSTALL':'YES'})
@@ -39,12 +44,12 @@ for name in names:
   st=settings.copy(); st['SWIFT_OPTIMIZATION_LEVEL']=q('-Onone' if c=='Debug' else '-O')
   configs.append(obj(name+c,val(dict(isa='XCBuildConfiguration',buildSettings=val(st),name=c))))
  cl=obj(name+'configs',val(dict(isa='XCConfigurationList',buildConfigurations=arr(configs),defaultConfigurationIsVisible='0',defaultConfigurationName='Release')))
- obj(name,val(dict(isa='PBXNativeTarget',buildConfigurationList=cl,buildPhases=arr(phases),buildRules='()',dependencies=arr(dependencies),name=name,packageProductDependencies=arr([dep]),productName=name,productReference=product,productType=q('com.apple.product-type.bundle.unit-test' if test else ('com.apple.product-type.application.watchapp2' if watch else 'com.apple.product-type.application')))))
+ obj(name,val(dict(isa='PBXNativeTarget',buildConfigurationList=cl,buildPhases=arr(phases),buildRules='()',dependencies=arr(dependencies),name=name,packageProductDependencies=arr([dep]),productName=name,productReference=product,productType=q('com.apple.product-type.bundle.unit-test' if test else 'com.apple.product-type.application'))))
 group=obj('products',val(dict(isa='PBXGroup',children=arr(products),name='Products',sourceTree=q('<group>'))))
 main=obj('main',val(dict(isa='PBXGroup',children=arr(list(files.values())+[group]),sourceTree=q('<group>'))))
 configs=[obj('project'+c,val(dict(isa='XCBuildConfiguration',buildSettings='{CLANG_ENABLE_MODULES = YES; SWIFT_STRICT_CONCURRENCY = complete;}',name=c))) for c in ['Debug','Release']]
 cl=obj('projectconfigs',val(dict(isa='XCConfigurationList',buildConfigurations=arr(configs),defaultConfigurationIsVisible='0',defaultConfigurationName='Release')))
-obj('project',val(dict(isa='PBXProject',attributes='{LastUpgradeCheck = 1600;}',buildConfigurationList=cl,compatibilityVersion=q('Xcode 14.0'),developmentRegion='en',hasScannedForEncodings='0',knownRegions='(en,Base,zh-Hans)',mainGroup=main,packageReferences=arr([package]),productRefGroup=group,projectDirPath=q(''),projectRoot=q(''),targets=arr(targets))))
+obj('project',val(dict(isa='PBXProject',attributes='{LastUpgradeCheck = 1600; TargetAttributes = {'+uid('WristMagicWatchTests')+' = {TestTargetID = '+uid('WristMagicWatch')+';};};}',buildConfigurationList=cl,compatibilityVersion=q('Xcode 14.0'),developmentRegion='en',hasScannedForEncodings='0',knownRegions='(en,Base,zh-Hans)',mainGroup=main,packageReferences=arr([package]),productRefGroup=group,projectDirPath=q(''),projectRoot=q(''),targets=arr(targets))))
 (p/'project.pbxproj').write_text('// !$*UTF8*$!\n{archiveVersion = 1; classes = {}; objectVersion = 56; objects = {\n'+''.join(f'{k} = {v};\n' for k,v in objects.items())+'}; rootObject = '+uid('project')+';}\n')
 s=p/'xcshareddata/xcschemes';s.mkdir(parents=True,exist_ok=True)
 for name in names:

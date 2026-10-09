@@ -15,6 +15,8 @@ jobs:
           xcodebuild -version
           xcodebuild -showsdks
           xcrun simctl list devices available
+      - name: Project structure
+        run: python3 scripts/check-project.py
       - name: Core tests
         run: scripts/test-core.sh
       - name: Build both apps
