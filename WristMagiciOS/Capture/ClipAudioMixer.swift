@@ -24,7 +24,7 @@ import WristMagicCore
     let duration = try await source.load(.duration)
     let samples = try renderedSamples(cues:cues,duration:duration.seconds)
     let audioURL = video.deletingLastPathComponent().appendingPathComponent("\(UUID()).wav")
-    let output = video.deletingLastPathComponent().appendingPathComponent("\(UUID()).partial")
+    let output = ClipWriter.temporaryURL(in:video.deletingLastPathComponent())
     defer { try? FileManager.default.removeItem(at:audioURL) }
     do {
       try SpellPCM.wav(samples).write(to:audioURL,options:.atomic)

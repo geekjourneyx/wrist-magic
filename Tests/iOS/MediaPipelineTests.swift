@@ -87,7 +87,7 @@ final class MediaPipelineTests: XCTestCase {
     CVPixelBufferUnlockBaseAddress(result, [])
     return result
   }
-  private static func temp(_ name: String) -> URL { FileManager.default.temporaryDirectory.appendingPathComponent("\(name)-\(UUID()).partial") }
+  private static func temp(_ name: String) -> URL { ClipWriter.temporaryURL() }
 }
 
 extension MediaPipelineTests {
@@ -250,5 +250,25 @@ extension MediaPipelineTests {
     XCTAssertTrue(FileManager.default.fileExists(atPath:retry.path))
     let successfulRetry = try store.commit(tempURL:retry,report:report)
     XCTAssertNotEqual(successfulRetry.id,good.id)
+  }
+}
+
+extension MediaPipelineTests {
+  @MainActor func testWriterNormalizesPartialExtensionToReadableMP4AndHasContainerHeader() async throws {
+    let requested = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID()).partial")
+    let writer = try ClipWriter(url:requested)
+    XCTAssertEqual(writer.url.pathExtension,"mp4")
+    XCTAssertTrue(writer.url.lastPathComponent.hasSuffix(".partial.mp4"))
+    let pixel = try Self.pixel(); try writer.start(at:.zero)
+    for i in 0..<60 {try await MediaTestSupport.append(writer,buffer:pixel,pts:CMTime(value:Int64(i),timescale:30))}
+    let completed = try await MediaTestSupport.deadline {try await writer.finish()}
+    defer {try? FileManager.default.removeItem(at:completed)}
+    XCTAssertEqual(completed,writer.url)
+    XCTAssertFalse(FileManager.default.fileExists(atPath:requested.path))
+    let bytes = try Data(contentsOf:completed)
+    XCTAssertGreaterThan(bytes.count,8)
+    XCTAssertEqual(String(decoding:bytes[4..<8],as:UTF8.self),"ftyp")
+    let report = try await ClipValidator.validate(url:completed,expectedDuration:2,requiresAudio:false)
+    XCTAssertEqual(report.width,720); XCTAssertEqual(report.height,1280)
   }
 }

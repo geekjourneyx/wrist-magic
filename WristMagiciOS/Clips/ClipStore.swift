@@ -54,7 +54,7 @@ private struct StoredClip: Codable {
     }
     records = records.filter { manager.fileExists(atPath:$0.url.path) }
     let indexed = Set(records.map { $0.url.lastPathComponent })
-    for file in try manager.contentsOfDirectory(at:self.directory,includingPropertiesForKeys:nil) where file.pathExtension == "partial" || (file.pathExtension == "mp4" && !indexed.contains(file.lastPathComponent)) {
+    for file in try manager.contentsOfDirectory(at:self.directory,includingPropertiesForKeys:nil) where file.pathExtension == "partial" || file.lastPathComponent.hasSuffix(".partial.mp4") || (file.pathExtension == "mp4" && !indexed.contains(file.lastPathComponent)) {
       try manager.removeItem(at:file)
     }
     try persist(records)

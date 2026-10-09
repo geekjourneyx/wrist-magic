@@ -115,11 +115,15 @@ import WristMagicCore
         encoder.drawPrimitives(type:.triangle,vertexStart:0,vertexCount:3); encoder.endEncoding(); command.present(drawable)
       }
     }
-    command.addCompletedHandler { completed in
-      // Keep CoreVideo texture wrappers and the camera image alive until GPU completion.
+    // This Sendable actor closure owns the CoreVideo/drawable lifetime; the Metal
+    // callback itself is explicitly nonisolated and never accesses actor-owned state.
+    let deliver: @MainActor @Sendable (Bool) -> Void = { success in
       _ = (camera.0,chroma.0,output.0,image,drawable)
+      completion(success ? .success(target) : .failure(MediaError.gpu))
+    }
+    command.addCompletedHandler { @Sendable completed in
       let success = completed.status == .completed
-      Task { @MainActor in completion(success ? .success(target) : .failure(MediaError.gpu)) }
+      Task { @MainActor in deliver(success) }
     }
     command.commit()
     // Manual/paused MTKView drawing does not clear its cached drawable for us.

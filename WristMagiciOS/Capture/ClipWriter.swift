@@ -13,9 +13,15 @@ enum MediaError: Error { case invalidState, invalidPTS, writerFailed, pixelBuffe
   private var lastPTS: CMTime?
   private var result: Result<URL, Error>?
   private var finishTask: Task<URL, Error>?
+  nonisolated static func temporaryURL(in directory: URL = FileManager.default.temporaryDirectory) -> URL {
+    directory.appendingPathComponent("\(UUID()).partial.mp4")
+  }
   init(url: URL) throws {
-    self.url = url
-    writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
+    // AVURLAsset format discovery uses the final path extension even for completed MP4 bytes.
+    // Keep the incomplete marker in the basename while preserving the actual media extension.
+    let outputURL = url.pathExtension.lowercased() == "mp4" ? url : url.appendingPathExtension("mp4")
+    self.url = outputURL
+    writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
     input = AVAssetWriterInput(mediaType: .video, outputSettings: [
       AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: 720, AVVideoHeightKey: 1280,
       AVVideoColorPropertiesKey: [AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,

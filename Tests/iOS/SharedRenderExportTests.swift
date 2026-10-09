@@ -28,7 +28,7 @@ final class SharedRenderExportTests: XCTestCase {
     blit.copy(from:texture,sourceSlice:0,sourceLevel:0,sourceOrigin:MTLOrigin(x:0,y:0,z:0),sourceSize:MTLSize(width:720,height:1280,depth:1),to:buffer,destinationOffset:0,destinationBytesPerRow:rowBytes,destinationBytesPerImage:rowBytes*1280)
     blit.endEncoding()
     let _:Void = try await MediaTestSupport.callback { complete in
-      command.addCompletedHandler { completed in
+      command.addCompletedHandler { @Sendable completed in
         let success = completed.status == .completed
         Task { @MainActor in complete(success ? .success(()) : .failure(MediaError.gpu)) }
       }
@@ -63,7 +63,7 @@ final class SharedRenderExportTests: XCTestCase {
     let camera = try Self.camera()
     let references:Set<Int> = [0,9,24,45] // 0 / .3 / .8 / 1.5 seconds at30fps
     for spell in SpellID.allCases {
-      let url = FileManager.default.temporaryDirectory.appendingPathComponent("shared-\(UUID()).partial")
+      let url = ClipWriter.temporaryURL()
       let writer = try ClipWriter(url:url); try writer.start(at:.zero)
       var expected:[Int:PixelSnapshot] = [:]
       let cue = EffectCue(eventID:UUID(),spell:spell,start:0,seed:27,origin:.zero,direction:SIMD3(0.4,0,0))
