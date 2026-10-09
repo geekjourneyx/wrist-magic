@@ -1,3 +1,27 @@
-# Implementation status
+# 开发进度
 
-2026-10-09: User authorizes SDD implementation and push. Physical device tests deferred to Mac mini. Baseline DESIGN and original plan preserved; this authorization supersedes their planning-only gates. Software work in progress. No build or test has passed yet.
+更新：2026-10-09。用户已授权完整软件开发和提交仓库；真机测试留待 Mac mini。此授权覆盖原设计文档的“只做计划”限制。原始22项任务保留，软件实施归并见 [执行计划](superpowers/plans/2026-10-09-software-execution.md)。
+
+| 单元 | 代码状态 | 验证状态 |
+|---|---|---|
+| S01 原生双端工程 | 已实现 | iPhone/Watch Debug、Release 构建及双端模拟器 smoke test 通过 |
+| S02 共享逻辑 | 已实现并通过独立审查 | 原13项核心测试在 macOS 通过；门控修复后16项直接 XCTest 通过，新增CI验证中 |
+| S03 Watch、传感器、双端通信 | 开发中 | 待集成测试 |
+| S04 AR、Metal、录像、音效、存储 | 待开发 | 待测试 |
+| S05 iPhone 完整产品流程 | 待开发 | 待测试 |
+| S06 视觉组件、无障碍、UI回归 | 待开发 | 待模拟器验证 |
+| S07 整体审查与交付 | 待完成 | 未达到完整软件交付状态 |
+
+通过证据：[macOS CI 37914079907](https://github.com/geekjourneyx/wrist-magic/actions/runs/37914079907)，测试代码快照 `b1e0cb5`。核心门控修复快照 `f5119a8`。构建环境 Xcode16.4；不代表已支持或测试用户真机上的具体系统。
+
+Linux的Swift运行环境存在进程信息不匹配导致的间歇性Signal4；已有成功测试输出，但不能称本地环境稳定。正式Apple编译与模拟器验收以macOS CI为准。
+
+## 留给 Mac mini 的实测项目
+
+- 真实签名、安装和 Watch 配对；记录型号、OS和Xcode版本。
+- 左右腕/表冠姿态校准、三术训练与独立保留集；当前profile为明确标记的实验参数。
+- Motion误触发、触感/声音体验、真实WatchConnectivity时延和断连恢复。
+- AR环境跟踪、固定构图对齐、真机成片、音画同步与帧率。
+- Instruments功耗、热状态、内存；实际VoiceOver及视觉体验验收。
+
+这些项目均未测试，不能将模拟器通过当作真机通过。完整代码仍在开发，功能缺口不会归入真机测试来隐藏。
