@@ -3,15 +3,28 @@ import Observation
 
 @MainActor @Observable final class PhotoSaver {
   private(set) var saving = false
-  private(set) var saved: Set<URL> = []
+  private let defaults: UserDefaults
+  private var savedNames: Set<String>
+  private let permission: () async -> Bool
+  private let write: (URL) async throws -> Void
+  init(defaults: UserDefaults = .standard,
+       permission: @escaping () async -> Bool = { await PermissionCoordinator.requestPhotoAdd() },
+       write: @escaping (URL) async throws -> Void = { url in
+         try await PHPhotoLibrary.shared().performChanges { @Sendable in
+           PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
+         }
+       }) {
+    self.defaults = defaults; self.permission = permission; self.write = write
+    savedNames = Set(defaults.stringArray(forKey: "savedClipNames") ?? [])
+  }
+  func isSaved(_ url: URL) -> Bool { savedNames.contains(url.lastPathComponent) }
   func save(url: URL) async throws {
-    guard !saving, !saved.contains(url) else { return }
+    guard !saving, !isSaved(url) else { return }
     saving = true; defer { saving = false }
-    guard await PermissionCoordinator.requestPhotoAdd() else { throw PhotoSaveError.denied }
-    try await PHPhotoLibrary.shared().performChanges {
-      PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
-    }
-    saved.insert(url)
+    guard await permission() else { throw PhotoSaveError.denied }
+    try await write(url)
+    savedNames.insert(url.lastPathComponent)
+    defaults.set(Array(savedNames), forKey: "savedClipNames")
   }
 }
 enum PhotoSaveError: Error { case denied }

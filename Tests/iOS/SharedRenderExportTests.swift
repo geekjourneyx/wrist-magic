@@ -67,15 +67,12 @@ final class SharedRenderExportTests: XCTestCase {
       let writer = try ClipWriter(url:url); try writer.start(at:.zero)
       var expected:[Int:PixelSnapshot] = [:]
       let cue = EffectCue(eventID:UUID(),spell:spell,start:0,seed:27,origin:.zero,direction:SIMD3(0.4,0,0))
-      var previousDrawable: (any CAMetalDrawable)?
       for index in 0..<60 {
         try await MediaTestSupport.waitUntilReady(writer)
         // MTKView caches currentDrawable for this frame. Retain the actual presented texture.
         guard let drawable = preview.currentDrawable else {throw MediaError.gpu}
-        if let previousDrawable {
-          XCTAssertNotEqual(ObjectIdentifier(previousDrawable as AnyObject),ObjectIdentifier(drawable as AnyObject),"Renderer must release the previous cached drawable")
-        }
-        previousDrawable = drawable
+        // Completed CAMetalDrawable wrappers may be recycled. Fresh-frame correctness
+        // is proved below by reading the actual presented texture at changing cue times.
         let pixels:PixelSnapshot = try await MediaTestSupport.callback { complete in
           do {
             let accepted = try renderer.submit(image:camera,displayTransform:.identity,viewProjection:matrix_identity_float4x4,time:Double(index)/30,effects:[cue]) { result in

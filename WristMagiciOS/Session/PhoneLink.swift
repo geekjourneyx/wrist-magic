@@ -1,7 +1,16 @@
 import Foundation
 import WristMagicCore
 
-@MainActor final class PhoneLink: ForegroundLink {
+@MainActor protocol PhoneSessionLink: LiveLink {
+  var available: Bool { get }
+  var onReceived: ((WireEnvelope) -> Void)? { get set }
+  var onLinkChanged: ((Bool, String) -> Void)? { get set }
+  var onSettings: ((SettingsPayload) -> Void)? { get set }
+  func setForeground(_ value: Bool)
+  func publishSettings(_ value: SettingsPayload) throws
+}
+
+@MainActor final class PhoneLink: ForegroundLink, PhoneSessionLink {
   let coordinator: SessionCoordinator
   var onReceived: ((WireEnvelope) -> Void)?
   var onLinkChanged: ((Bool, String) -> Void)?

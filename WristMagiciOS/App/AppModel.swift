@@ -19,7 +19,7 @@ enum AppRoute: Equatable { case connection, tutorial, home, reality, showOff, se
   private(set) var watchCharged = false
   let settings: SettingsStore
   let authority: SessionCoordinator
-  let link: PhoneLink
+  let link: any PhoneSessionLink
   let frames: ARFrameSource
   let renderer: StageRenderer
   let stage: EffectStage
@@ -28,6 +28,9 @@ enum AppRoute: Equatable { case connection, tutorial, home, reality, showOff, se
   let sound: PhoneSoundPlayer
   let capture: CaptureCoordinator
   let photos = PhotoSaver()
+  private let now: () -> Double
+  private let cameraPermission: () async -> Bool
+  private var frameUptime: Double = 0
   private var currentFrame: ARFrame?
   private var deferredSpell: SpellID?
   private var commandGeneration = 0
@@ -35,17 +38,22 @@ enum AppRoute: Equatable { case connection, tutorial, home, reality, showOff, se
   private var tutorialSession: UUID?
   private var foreground = false
   private var trackingLostAt: Double?
+  private var reviewLeaseID: UUID?
   private var observation: NSObjectProtocol?
-  init(settings: SettingsStore = SettingsStore()) throws {
+  init(settings: SettingsStore = SettingsStore(), authority: SessionCoordinator = SessionCoordinator(),
+       link: (any PhoneSessionLink)? = nil, frames: ARFrameSource = ARFrameSource(),
+       store: ClipStore? = nil, now: @escaping () -> Double = { ProcessInfo.processInfo.systemUptime },
+       cameraPermission: @escaping () async -> Bool = { await PermissionCoordinator.requestCamera() }) throws {
     self.settings = settings
-    authority = SessionCoordinator(); link = PhoneLink(coordinator: authority)
-    frames = ARFrameSource(); renderer = try StageRenderer(); stage = EffectStage()
-    pipeline = RenderCapturePipeline(renderer: renderer); store = try ClipStore(); sound = PhoneSoundPlayer()
-    capture = CaptureCoordinator(authority: authority, pipeline: pipeline, store: store, settings: settings)
+    self.authority = authority; self.link = link ?? PhoneLink(coordinator: authority)
+    self.frames = frames; self.now = now; self.cameraPermission = cameraPermission
+    renderer = try StageRenderer(); stage = EffectStage()
+    pipeline = RenderCapturePipeline(renderer: renderer); self.store = try store ?? ClipStore(); sound = PhoneSoundPlayer()
+    capture = CaptureCoordinator(authority: authority, pipeline: pipeline, store: self.store, settings: settings, now: now)
     route = settings.tutorialCompleted ? .home : .connection
     bind()
-    if let pending = store.latestRecoverable() { clip = pending; route = .recovery; message = "上次的短片已保留，是否查看？" }
-    try store.prune()
+    if let pending = self.store.latestRecoverable() { try self.store.acquire(pending.id); reviewLeaseID = pending.id; clip = pending; route = .recovery; message = "上次的短片已保留，是否查看？" }
+    do { try self.store.prune() } catch { NSLog("Clip prune failed: %@", String(describing: error)) }
   }
   private func bind() {
     link.onSettings = { [weak self] value in self?.settings.apply(value) }
@@ -61,7 +69,7 @@ enum AppRoute: Equatable { case connection, tutorial, home, reality, showOff, se
       guard let self, self.isStage, let frame = self.currentFrame, self.stage.placed else { return }
       if self.route == .showOff && !self.capture.acceptCast() { return }
       do {
-        let start = frame.timestamp + uptime - ProcessInfo.processInfo.systemUptime
+        let start = frame.timestamp + uptime - self.frameUptime
         let cue = try self.stage.makeCue(spell: spell, start: start, seed: UInt64.random(in: 0...UInt64.max))
         self.pipeline.add(cue); self.sound.play(cue, enabled: self.settings.snapshot.sound)
         self.watchCharged = false; self.message = "这次成功了"
@@ -72,16 +80,16 @@ enum AppRoute: Equatable { case connection, tutorial, home, reality, showOff, se
       self.trackingReady = normal; self.stage.trackingNormal = normal; self.authority.trackingNormal = normal && self.stage.placed
       if normal { self.trackingLostAt = nil }
       else if self.capture.state == .recording { self.recover(.trackingLost) }
-      else if self.trackingLostAt == nil { self.trackingLostAt = ProcessInfo.processInfo.systemUptime }
+      else if self.trackingLostAt == nil { self.trackingLostAt = self.now() }
     }
     frames.onFrame = { [weak self] frame in
       guard let self, self.isStage else { return }
-      self.currentFrame = frame
+      self.currentFrame = frame; self.frameUptime = self.now()
       if self.trackingReady && !self.stage.placed {
         do { try self.stage.place(camera: frame.camera, mode: self.selectedMode, side: self.capture.side); self.authority.trackingNormal = true }
         catch { self.recover(.trackingLost); return }
       }
-      if let lost = self.trackingLostAt, ProcessInfo.processInfo.systemUptime - lost >= 1 { self.recover(.trackingLost); return }
+      if let lost = self.trackingLostAt, self.now() - lost >= 1 { self.recover(.trackingLost); return }
       self.capture.frame(frame)
       self.stage.casting = self.pipeline.cues.contains { frame.timestamp >= $0.start && frame.timestamp < $0.start + $0.duration }
       self.pipeline.consume(frame)
@@ -153,7 +161,7 @@ enum AppRoute: Equatable { case connection, tutorial, home, reality, showOff, se
       catch { message = "模式切换失败，请在手表上选择相同模式" }
       return
     }
-    guard await PermissionCoordinator.requestCamera() else { recover(.cameraDenied); return }
+    guard await cameraPermission() else { recover(.cameraDenied); return }
     do {
       stage.reset(); currentFrame = nil; trackingLostAt = nil
       capture.prepare(side: .left); renderer.reducedMotion = settings.snapshot.reducedMotion
@@ -189,11 +197,13 @@ enum AppRoute: Equatable { case connection, tutorial, home, reality, showOff, se
   func silentExport() async { await capture.process(silent: true) }
   func review(_ record: ClipRecord) {
     leaveStage(); releaseReview()
-    do { try store.acquire(record.id); clip = record; route = .review(record.id) }
+    do { try store.acquire(record.id); reviewLeaseID = record.id; clip = record; route = .review(record.id) }
     catch { recover(.diskFull) }
   }
   func reviewRecovered() { if let clip { review(clip) } }
   private func releaseReview() {
-    if case .review(let id) = route { try? store.markReviewed(id); store.release(id); clip = nil }
+    if case .review(let id) = route { try? store.markReviewed(id) }
+    if let id = reviewLeaseID { store.release(id); reviewLeaseID = nil }
+    clip = nil
   }
 }
