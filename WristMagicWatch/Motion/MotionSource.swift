@@ -32,21 +32,21 @@ import WristMagicCore
             motion.attitude.quaternion.z, motion.attitude.quaternion.w))
       }
       Task { @MainActor in
-        guard let self, delivery.accepts(epoch) else { return }
-        if let error { stop(); onError?(error); return }
+        guard let self, self.delivery.accepts(epoch) else { return }
+        if let error { self.stop(); self.onError?(error); return }
         guard let sample, sample.isValid else { return }
-        if calibration == nil {
+        if self.calibration == nil {
           let magnitude = sqrt(sample.acceleration.x * sample.acceleration.x + sample.acceleration.y * sample.acceleration.y + sample.acceleration.z * sample.acceleration.z)
           let rotation = sqrt(sample.rotationRate.x * sample.rotationRate.x + sample.rotationRate.y * sample.rotationRate.y + sample.rotationRate.z * sample.rotationRate.z)
           if magnitude < 1 && rotation < 0.5 {
-            if neutralStart == nil { neutralStart = sample.t }
-            if sample.t - neutralStart! >= 0.4 { calibration = WristCalibration(neutral: sample.attitude) }
-          } else { neutralStart = nil }
+            if self.neutralStart == nil { self.neutralStart = sample.t }
+            if sample.t - self.neutralStart! >= 0.4 { self.calibration = WristCalibration(neutral: sample.attitude) }
+          } else { self.neutralStart = nil }
         }
         #if DEBUG
-        logger?.append(sample)
+        self.logger?.append(sample)
         #endif
-        if let calibration { callback?(calibration.normalize(sample)) }
+        if let calibration = self.calibration { self.callback?(calibration.normalize(sample)) }
       }
     }
   }
