@@ -10,8 +10,8 @@ def val(d): return '{'+''.join(f'{k} = {v};' for k,v in d.items())+'}'
 def q(s): return '"'+s+'"'
 files={}
 root=p.parent
-paths=sorted(str(f.relative_to(root)) for folder in ['WristMagiciOS','WristMagicWatch','Shared','Tests'] for f in (root/folder).rglob('*.swift'))
-for path in paths: files[path]=obj(path,val(dict(isa='PBXFileReference',lastKnownFileType='sourcecode.swift',path=q(path),sourceTree='SOURCE_ROOT')))
+paths=sorted(str(f.relative_to(root)) for folder in ['WristMagiciOS','WristMagicWatch','Shared','Tests'] for f in (root/folder).rglob('*') if f.is_file() and (f.suffix in ['.swift', '.metal'] or '/Resources/' in str(f)))
+for path in paths: files[path]=obj(path,val(dict(isa='PBXFileReference',lastKnownFileType=('sourcecode.metal' if path.endswith('.metal') else 'sourcecode.swift' if path.endswith('.swift') else 'file'),path=q(path),sourceTree='SOURCE_ROOT')))
 package=obj('package',val(dict(isa='XCLocalSwiftPackageReference',relativePath='Packages/WristMagicCore')))
 targets=[]; products=[]
 names=['WristMagiciOS','WristMagicWatch','WristMagiciOSTests','WristMagicWatchTests']
@@ -19,12 +19,15 @@ for name in names:
  watch='Watch' in name; test=name.endswith('Tests'); tid=uid(name); targets.append(tid)
  product=obj(name+'product',val(dict(isa='PBXFileReference',explicitFileType='wrapper.cfbundle' if test else 'wrapper.application',includeInIndex='0',path=q(name+('.xctest' if test else '.app')),sourceTree='BUILT_PRODUCTS_DIR'))); products.append(product)
  sourcepaths=[path for path in paths if (path.startswith('Tests/'+('Watch' if watch else 'iOS')+'/') or path.startswith('Tests/Fixtures/'))] if test else [path for path in paths if path.startswith(('WristMagicWatch/' if watch else 'WristMagiciOS/', 'Shared/'))]
+ resourcepaths=[path for path in sourcepaths if '/Resources/' in path]
+ sourcepaths=[path for path in sourcepaths if path.endswith(('.swift','.metal'))]
  builds=[obj(name+path,val(dict(isa='PBXBuildFile',fileRef=files[path]))) for path in sourcepaths]
  source=obj(name+'sources',val(dict(isa='PBXSourcesBuildPhase',buildActionMask='2147483647',files=arr(builds),runOnlyForDeploymentPostprocessing='0')))
  dep=obj(name+'core',val(dict(isa='XCSwiftPackageProductDependency',package=package,productName='WristMagicCore')))
  build=obj(name+'corebuild',val(dict(isa='PBXBuildFile',productRef=dep)))
  framework=obj(name+'frameworks',val(dict(isa='PBXFrameworksBuildPhase',buildActionMask='2147483647',files=arr([build]),runOnlyForDeploymentPostprocessing='0')))
- phases=[source,framework]; dependencies=[]
+ resources=obj(name+'resources',val(dict(isa='PBXResourcesBuildPhase',buildActionMask='2147483647',files=arr([obj(name+'resource'+path,val(dict(isa='PBXBuildFile',fileRef=files[path]))) for path in resourcepaths]),runOnlyForDeploymentPostprocessing='0')))
+ phases=[source,framework,resources]; dependencies=[]
  if name=='WristMagiciOS':
   embed=obj('embedwatchfile',val(dict(isa='PBXBuildFile',fileRef=uid('WristMagicWatchproduct'),settings='{ATTRIBUTES = (RemoveHeadersOnCopy,);}')))
   phases.append(obj('embedwatch',val(dict(isa='PBXCopyFilesBuildPhase',buildActionMask='2147483647',dstPath=q('$(CONTENTS_FOLDER_PATH)/Watch'),dstSubfolderSpec='16',files=arr([embed]),name=q('Embed Watch Content'),runOnlyForDeploymentPostprocessing='0'))))
@@ -39,7 +42,7 @@ for name in names:
  if not test:
   settings.update({'INFOPLIST_KEY_CFBundleDisplayName':q('腕术'),'MARKETING_VERSION':'0.1.0','CURRENT_PROJECT_VERSION':'1'})
   if watch: settings.update({'INFOPLIST_KEY_WKApplication':'YES','INFOPLIST_KEY_WKCompanionAppBundleIdentifier':'io.github.geekjourneyx.wristmagic','INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp':'YES','SKIP_INSTALL':'YES'})
-  else: settings.update({'INFOPLIST_KEY_UILaunchScreen_Generation':'YES','INFOPLIST_KEY_UISupportedInterfaceOrientations':'UIInterfaceOrientationPortrait'})
+  else: settings.update({'INFOPLIST_KEY_UILaunchScreen_Generation':'YES','INFOPLIST_KEY_UISupportedInterfaceOrientations':'UIInterfaceOrientationPortrait','INFOPLIST_KEY_NSCameraUsageDescription':q('相机用于现实舞台和法术短片。Camera creates your spell stage and clips.')})
  configs=[]
  for c in ['Debug','Release']:
   st=settings.copy(); st['SWIFT_OPTIMIZATION_LEVEL']=q('-Onone' if c=='Debug' else '-O')
