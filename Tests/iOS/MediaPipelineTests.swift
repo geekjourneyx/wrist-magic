@@ -216,3 +216,31 @@ extension MediaPipelineTests {
     XCTAssertTrue(FileManager.default.fileExists(atPath:good.url.path))
   }
 }
+
+private final class OutOfSpaceFileManager: FileManager, @unchecked Sendable {
+  override func copyItem(at srcURL: URL, to dstURL: URL) throws {
+    throw NSError(domain:NSCocoaErrorDomain,code:NSFileWriteOutOfSpaceError)
+  }
+}
+extension MediaPipelineTests {
+  @MainActor func testOutOfSpacePreservesLastGoodClipAndSourceCanRetry() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at:root) }
+    let store = try ClipStore(directory:root)
+    let writer = try ClipWriter(url:Self.temp("space")); let pixel = try Self.pixel()
+    try writer.start(at:.zero)
+    for i in 0..<60 { while !(try writer.append(buffer:pixel,pts:CMTime(value:Int64(i),timescale:30))) { await Task.yield() } }
+    let source = try await writer.finish()
+    let report = try await ClipValidator.validate(url:source,expectedDuration:2,requiresAudio:false)
+    let retry = Self.temp("retry"); try FileManager.default.copyItem(at:source,to:retry)
+    defer { try? FileManager.default.removeItem(at:retry) }
+    let good = try store.commit(tempURL:source,report:report)
+    let failing = try ClipStore(directory:root,manager:OutOfSpaceFileManager())
+    XCTAssertThrowsError(try failing.commit(tempURL:retry,report:report))
+    XCTAssertEqual(failing.latestRecoverable()?.id,good.id)
+    XCTAssertTrue(FileManager.default.fileExists(atPath:good.url.path))
+    XCTAssertTrue(FileManager.default.fileExists(atPath:retry.path))
+    let successfulRetry = try store.commit(tempURL:retry,report:report)
+    XCTAssertNotEqual(successfulRetry.id,good.id)
+  }
+}

@@ -71,12 +71,19 @@ import WristMagicCore
   }
   /// Standalone fixture/offscreen entrypoint. Await GPU completion before consuming target.
   func render(frame: ARFrame, effects: [EffectCue], target: CVPixelBuffer) async throws {
+    guard let slot = (0..<3).first(where: { !busy.contains($0) }) else { throw MediaError.gpu }
+    busy.insert(slot); framesInFlight = busy.count
     try await withCheckedThrowingContinuation { continuation in
-      do { try encode(image: frame.capturedImage, displayTransform: frame.displayTransform(for: .portrait, viewportSize: CameraTransform.outputSize), viewProjection: CameraTransform.viewProjection(frame.camera), time: frame.timestamp, effects: effects, target: target) { continuation.resume(with: $0.map { _ in () }) } }
-      catch { continuation.resume(throwing: error) }
+      do { try encode(image: frame.capturedImage, displayTransform: frame.displayTransform(for: .portrait, viewportSize: CameraTransform.outputSize), viewProjection: CameraTransform.viewProjection(frame.camera), time: frame.timestamp, effects: effects, target: target) { [self] result in
+        self.busy.remove(slot); self.framesInFlight = self.busy.count
+        continuation.resume(with: result.map { _ in () })
+      } }
+      catch { busy.remove(slot); framesInFlight = busy.count; continuation.resume(throwing: error) }
     }
   }
   private func encode(image: CVPixelBuffer, displayTransform: CGAffineTransform, viewProjection: simd_float4x4, time: Double, effects: [EffectCue], target: CVPixelBuffer, completion: @escaping @MainActor (Result<CVPixelBuffer, Error>) -> Void) throws {
+    guard CVPixelBufferGetWidth(target) == 720, CVPixelBufferGetHeight(target) == 1280,
+      CVPixelBufferGetPixelFormatType(target) == kCVPixelFormatType_32BGRA else { throw MediaError.pixelBuffer }
     let planar = CVPixelBufferIsPlanar(image)
     let camera = try texture(image,format: planar ? .r8Unorm : .bgra8Unorm)
     let chroma = planar ? try texture(image,format:.rg8Unorm,plane:1) : camera
