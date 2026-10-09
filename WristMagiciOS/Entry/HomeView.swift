@@ -23,7 +23,8 @@ struct HomeView: View {
         Picker("模式", selection: $model.selectedMode) { Text("Reality").tag(PlayMode.reality); Text("Show Off").tag(PlayMode.showOff) }.pickerStyle(.segmented)
         Text(model.selectedMode == .reality ? "把手机对准现实，手表施法。" : "固定手机，录下一段六秒短片。")
         Text(model.message).font(.footnote).foregroundStyle(.secondary)
-        Button("进入舞台") { Task { await model.startStage() } }.buttonStyle(.borderedProminent)
+        Button("进入舞台") { Task { await model.startStage() } }.buttonStyle(.borderedProminent).disabled(model.enteringStage)
+        if model.enteringStage { ProgressView("正在准备舞台") }
         Button("动作教学") { model.showTutorial() }
       }.padding(24)
     }.navigationTitle("Wrist Magic")

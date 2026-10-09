@@ -10,6 +10,7 @@ enum AppRoute: Equatable { case connection, tutorial, home, reality, showOff, se
   private(set) var selectedSpell: SpellID = .fireball
   var selectedMode: PlayMode = .reality
   private(set) var selectingSpell = false
+  private(set) var enteringStage = false
   private(set) var connected = false
   private(set) var message = "请在 Apple Watch 上打开腕术"
   private(set) var tutorialSuccess = false
@@ -56,7 +57,11 @@ enum AppRoute: Equatable { case connection, tutorial, home, reality, showOff, se
     do { try self.store.prune() } catch { NSLog("Clip prune failed: %@", String(describing: error)) }
   }
   private func bind() {
-    link.onSettings = { [weak self] value in self?.settings.apply(value) }
+    link.onSettings = { [weak self] value in
+      guard let self else { return }
+      self.settings.apply(value); self.renderer.reducedMotion = self.settings.snapshot.reducedMotion
+      if !self.settings.snapshot.sound { self.sound.stop() }
+    }
     link.onLinkChanged = { [weak self] available, reason in
       guard let self else { return }
       self.connected = available
@@ -153,6 +158,8 @@ enum AppRoute: Equatable { case connection, tutorial, home, reality, showOff, se
     if let pending = deferredSpell, !selectingSpell { deferredSpell = nil; select(pending) }
   }
   func startStage() async {
+    guard !enteringStage else { return }
+    enteringStage = true; defer { enteringStage = false }
     guard foreground, link.available, authority.sessionID != nil else { route = .connection; message = "在手表上选择 Reality 或 Show Off，然后连接"; return }
     guard ProcessInfo.processInfo.thermalState != .serious && ProcessInfo.processInfo.thermalState != .critical else { recover(.thermal); return }
     if authority.mode != selectedMode {
@@ -162,6 +169,9 @@ enum AppRoute: Equatable { case connection, tutorial, home, reality, showOff, se
       return
     }
     guard await cameraPermission() else { recover(.cameraDenied); return }
+    guard foreground, authority.sessionID != nil, authority.mode == selectedMode else {
+      route = .connection; message = "相机已获允许，请在手表重新连接后进入"; return
+    }
     do {
       stage.reset(); currentFrame = nil; trackingLostAt = nil
       capture.prepare(side: .left); renderer.reducedMotion = settings.snapshot.reducedMotion
@@ -184,7 +194,7 @@ enum AppRoute: Equatable { case connection, tutorial, home, reality, showOff, se
   func recover(_ reason: AppFailure) {
     failure = reason; commandGeneration += 1; watchCharged = false
     let action = RecoveryPolicy.transition(error: reason, phase: capture.state)
-    message = action.message
+    message = reason == .cameraInterrupted && capture.movementInvalidated ? "请放稳手机后重拍。" : action.message
     authority.invalidate(reason: reason.rawValue)
     if capture.state == .recording || capture.state == .countdown || capture.state == .preparing { capture.interrupt(reason) }
     frames.stop(); sound.stop(); stage.reset(); UIApplication.shared.isIdleTimerDisabled = false

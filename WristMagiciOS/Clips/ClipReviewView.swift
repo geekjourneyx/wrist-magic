@@ -20,12 +20,12 @@ struct ClipReviewView: View {
         Button(model.photos.isSaved(record.url) ? "已保存" : "保存到照片") {
           Task {
             do { try await model.photos.save(url: record.url); error = nil }
-            catch { error = "无法保存。请允许添加照片，或使用系统分享。" }
+            catch { self.error = "无法保存。请允许添加照片，或使用系统分享。" }
           }
         }.disabled(model.photos.saving || model.photos.isSaved(record.url))
         Button("系统分享", systemImage: "square.and.arrow.up") {
           do { try model.store.acquire(record.id); shareLease = true; sharing = true }
-          catch { error = "短片暂时无法读取，请重试。" }
+          catch { self.error = "短片暂时无法读取，请重试。" }
         }
       }.buttonStyle(.bordered)
       Button("完成") { player.pause(); model.home() }.buttonStyle(.borderedProminent)

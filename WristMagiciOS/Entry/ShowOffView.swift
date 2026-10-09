@@ -15,7 +15,7 @@ struct ShowOffView: View {
     ZStack {
       StagePreview(renderer: model.renderer).ignoresSafeArea()
       VStack(spacing: 16) {
-        HStack { Button("退出") { model.home() }; Spacer(); Text(model.selectedMode == .showOff ? "Show Off" : "Reality").font(.headline) }
+        HStack { Button("退出") { model.home() }.disabled(model.capture.state == .processing); Spacer(); Text(model.selectedMode == .showOff ? "Show Off" : "Reality").font(.headline) }
         Spacer()
         if model.route == .showOff && model.capture.state == .preparing {
           Image(systemName: "figure.stand").font(.system(size: 130)).foregroundStyle(.white.opacity(0.55)).accessibilityHidden(true)

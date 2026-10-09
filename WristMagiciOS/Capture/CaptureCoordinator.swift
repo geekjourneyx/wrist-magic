@@ -17,6 +17,7 @@ struct CameraMovementGate {
   private(set) var countdown = 3
   private(set) var elapsed: Double = 0
   private(set) var castAccepted = false
+  private(set) var movementInvalidated = false
   private(set) var side: LaunchSide = .left
   var onClip: ((ClipRecord) -> Void)?
   var onFailure: ((AppFailure) -> Void)?
@@ -47,7 +48,7 @@ struct CameraMovementGate {
   func prepare(side: LaunchSide) {
     guard state != .processing && state != .recording else { return }
     generation += 1; countdownTask?.cancel(); self.side = side; state = .preparing
-    elapsed = 0; castAccepted = false; baseline = nil; movement.reset()
+    elapsed = 0; castAccepted = false; movementInvalidated = false; baseline = nil; movement.reset()
     authority.captureFirstFrame = nil; authority.captureCutoff = nil
   }
   func beginCountdown() async {
@@ -82,7 +83,7 @@ struct CameraMovementGate {
       let distance = simd_distance(SIMD3(current.columns.3.x,current.columns.3.y,current.columns.3.z), SIMD3(baseline.columns.3.x,baseline.columns.3.y,baseline.columns.3.z))
       let dot = min(1, max(-1, abs(simd_dot(simd_quatf(baseline).vector,simd_quatf(current).vector))))
       let angle = 2 * acos(dot) * 180 / Float.pi
-      if movement.update(distance: distance, angle: angle, now: now()) { interrupt(.cameraInterrupted); return }
+      if movement.update(distance: distance, angle: angle, now: now()) { movementInvalidated = true; interrupt(.cameraInterrupted); return }
     }
     if let first = authority.captureFirstFrame { elapsed = max(0, now() - first) }
   }
