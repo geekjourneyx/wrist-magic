@@ -42,6 +42,7 @@ for name in names:
  configs=[]
  for c in ['Debug','Release']:
   st=settings.copy(); st['SWIFT_OPTIMIZATION_LEVEL']=q('-Onone' if c=='Debug' else '-O')
+  if c == 'Debug': st['ONLY_ACTIVE_ARCH']='YES'
   configs.append(obj(name+c,val(dict(isa='XCBuildConfiguration',buildSettings=val(st),name=c))))
  cl=obj(name+'configs',val(dict(isa='XCConfigurationList',buildConfigurations=arr(configs),defaultConfigurationIsVisible='0',defaultConfigurationName='Release')))
  obj(name,val(dict(isa='PBXNativeTarget',buildConfigurationList=cl,buildPhases=arr(phases),buildRules='()',dependencies=arr(dependencies),name=name,packageProductDependencies=arr([dep]),productName=name,productReference=product,productType=q('com.apple.product-type.bundle.unit-test' if test else 'com.apple.product-type.application'))))
