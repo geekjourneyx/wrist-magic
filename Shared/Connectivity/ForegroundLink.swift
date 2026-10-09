@@ -13,6 +13,7 @@ public enum LinkError: Error { case unavailable, notInstalled, timeout, invalidR
   private var pending: [UUID: CheckedContinuation<WireEnvelope, Error>] = [:]
   private var timers: [UUID: Task<Void, Never>] = [:]
   private var settingsRevision: UInt64 = 0
+  private var exchanges: [UUID: LiveExchange] = [:]
   public init(session: WCSession = .default) {
     self.session = session
     super.init()
@@ -32,6 +33,7 @@ public enum LinkError: Error { case unavailable, notInstalled, timeout, invalidR
     reportAvailability()
   }
   public func send(_ envelope: WireEnvelope) async throws -> WireEnvelope {
+    try Task.checkCancellation()
     guard envelope.isValid else { throw LinkError.invalidEnvelope }
     guard available else { throw LinkError.unavailable }
     let data = try JSONEncoder().encode(envelope)
@@ -39,12 +41,13 @@ public enum LinkError: Error { case unavailable, notInstalled, timeout, invalidR
       try await withCheckedThrowingContinuation { continuation in
         guard pending[envelope.eventID] == nil else { continuation.resume(throwing: LinkError.invalidEnvelope); return }
         pending[envelope.eventID] = continuation
+        exchanges[envelope.eventID] = LiveExchange(request: envelope, now: ProcessInfo.processInfo.systemUptime)
         transmit(data, request: envelope)
         timers[envelope.eventID] = Task { [weak self] in
           do {
             try await Task.sleep(for: .milliseconds(300))
             guard let self, pending[envelope.eventID] != nil else { return }
-            if available { transmit(data, request: envelope) }
+            if exchanges[envelope.eventID]?.advance(now: ProcessInfo.processInfo.systemUptime) == .retry, available { transmit(data, request: envelope) }
             try await Task.sleep(for: .milliseconds(500))
             finish(envelope.eventID, result: .failure(LinkError.timeout))
           } catch { }
@@ -58,11 +61,7 @@ public enum LinkError: Error { case unavailable, notInstalled, timeout, invalidR
     session.sendMessageData(data, replyHandler: { [weak self] response in
       Task { @MainActor in
         guard let self, let reply = WireEnvelope.decode(response), reply.sessionID == request.sessionID else { return }
-        if reply.kind == .ack {
-          guard let ack = try? JSONDecoder().decode(AckPayload.self, from: reply.payload), ack.eventID == request.eventID else { return }
-        } else {
-          guard request.kind == .armRequest, reply.kind == .armGrant else { return }
-        }
+        guard exchanges[request.eventID]?.accept(reply) == true else { return }
         finish(request.eventID, result: .success(reply))
       }
     }, errorHandler: { [weak self] _ in
@@ -73,6 +72,7 @@ public enum LinkError: Error { case unavailable, notInstalled, timeout, invalidR
   private func finish(_ id: UUID, result: Result<WireEnvelope, Error>) {
     guard let continuation = pending.removeValue(forKey: id) else { return }
     timers.removeValue(forKey: id)?.cancel()
+    exchanges.removeValue(forKey: id)
     continuation.resume(with: result)
   }
   private func cancelPending() {

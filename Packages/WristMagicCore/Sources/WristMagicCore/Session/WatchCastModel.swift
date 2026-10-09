@@ -56,6 +56,7 @@ public enum FeedbackEvent: Sendable { case start, ready, released, retry, paused
     state = CastReducer.reduce(state, .reset)
     onMotionStop?(); onSoundStop?(); message = reason
   }
+  public func report(_ text: String) { message = text }
   public func applySettings(_ value: SettingsPayload) {
     guard value.revision > settings.revision else { return }
     settings = value
@@ -112,7 +113,9 @@ public enum FeedbackEvent: Sendable { case start, ready, released, retry, paused
     case .resume:
       armRequested = false; trigger.reset(); if mode != .practice { connect() }
     case .prepare where before != state.phase:
-      armRequested = false; permit = nil; trigger.reset(); onMotionStart?(); onFeedback?(.start)
+      generation += 1; armRequested = false; permit = nil; trigger.reset(); onMotionStart?(); onFeedback?(.start)
+    case .crown where state.phase == .charging && state.charge < 1:
+      if armRequested { generation += 1; armRequested = false; permit = nil }
     case .crown where state.phase == .charging && state.charge == 1 && !armRequested:
       armRequested = true
       if mode == .practice {
@@ -134,7 +137,7 @@ public enum FeedbackEvent: Sendable { case start, ready, released, retry, paused
     case .timeout:
       permit = nil; readyDeadline = nil; onMotionStop?(); onFeedback?(.retry)
     case .reset, .select:
-      permit = nil; readyDeadline = nil; armRequested = false; onMotionStop?(); onSoundStop?()
+      generation += 1; permit = nil; readyDeadline = nil; armRequested = false; onMotionStop?(); onSoundStop?()
     default: break
     }
   }

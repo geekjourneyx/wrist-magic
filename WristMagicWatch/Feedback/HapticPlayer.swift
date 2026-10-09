@@ -1,11 +1,10 @@
 import WatchKit
 import WristMagicCore
 @MainActor final class HapticPlayer {
-  private var last = -Double.infinity
+  private var limiter = FeedbackRateLimiter()
   var enabled = true
   func play(_ event: FeedbackEvent, at: Double) {
-    guard enabled, at.isFinite, at - last >= 0.25 else { return }
-    last = at
+    guard enabled, limiter.accept(at: at) else { return }
     let type: WKHapticType
     switch event {
     case .start: type = .start

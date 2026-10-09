@@ -14,7 +14,7 @@ import WristMagicCore
     model.onMotionStart = { [weak self] in
       guard let self else { return }
       do { try motion.start { [weak self] sample in self?.model.sample(sample) } }
-      catch { model.disconnect(reason: "动作传感器不可用，可重试或轻点施法") }
+      catch { model.report("动作传感器不可用，请轻点施法") }
     }
     model.onMotionStop = { [weak self] in self?.motion.stop() }
     model.onSoundStop = { [weak self] in self?.sound.stop() }
@@ -24,7 +24,7 @@ import WristMagicCore
       haptics.play(event, at: ProcessInfo.processInfo.systemUptime)
       if event == .released, model.mode == .practice, model.settings.sound { sound.play(model.state.spell) }
     }
-    motion.onError = { [weak self] _ in self?.model.disconnect(reason: "动作采样中断，请重试") }
+    motion.onError = { [weak self] _ in self?.model.report("动作采样中断，请轻点施法") }
   }
   func foreground(_ active: Bool) {
     link.setForeground(active)
@@ -136,9 +136,21 @@ struct WatchSettingsView: View {
         Text("Reality").tag(PlayMode.reality)
         Text("Show Off").tag(PlayMode.showOff)
       }
+      Toggle("声音", isOn: preference(\.sound))
+      Toggle("触感", isOn: preference(\.haptics))
+      Toggle("减少动态", isOn: preference(\.reducedMotion))
       Text("连接玩法需要在 iPhone 打开舞台。")
       Button("暂停") { model.send(.pause) }
     }
+  }
+  private func preference(_ key: KeyPath<SettingsPayload, Bool>) -> Binding<Bool> {
+    Binding(get: { model.settings[keyPath: key] }, set: { value in
+      let current = model.settings
+      model.applySettings(SettingsPayload(revision: current.revision + 1,
+        sound: key == \.sound ? value : current.sound,
+        haptics: key == \.haptics ? value : current.haptics,
+        reducedMotion: key == \.reducedMotion ? value : current.reducedMotion))
+    })
   }
 }
 extension SpellID {

@@ -23,10 +23,10 @@ import WristMagicCore
     manager.deviceMotionUpdateInterval = 1.0 / 50.0
     manager.startDeviceMotionUpdates(using: .xArbitraryZVertical, to: queue) { [weak self] motion, error in
       let sample = motion.map { motion in
-        MotionSample(t: motion.timestamp,
-          acceleration: SIMD3(motion.userAcceleration.x, motion.userAcceleration.y, motion.userAcceleration.z) * 9.80665,
+        MotionConversion.sample(t: motion.timestamp,
+          userAcceleration: SIMD3(motion.userAcceleration.x, motion.userAcceleration.y, motion.userAcceleration.z),
           rotationRate: SIMD3(motion.rotationRate.x, motion.rotationRate.y, motion.rotationRate.z),
-          gravity: SIMD3(motion.gravity.x, motion.gravity.y, motion.gravity.z) * 9.80665,
+          gravity: SIMD3(motion.gravity.x, motion.gravity.y, motion.gravity.z),
           attitude: SIMD4(motion.attitude.quaternion.x, motion.attitude.quaternion.y,
             motion.attitude.quaternion.z, motion.attitude.quaternion.w))
       }
