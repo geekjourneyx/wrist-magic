@@ -89,9 +89,11 @@ public struct ArmRequestPayload: Codable, Sendable {
 public struct ArmGrantPayload: Codable, Sendable {
   public let permit: SessionPermit
   public let validFor: Double
-  public init(permit: SessionPermit, validFor: Double) {
+  public let requestEventID: UUID?
+  public init(permit: SessionPermit, validFor: Double, requestEventID: UUID? = nil) {
     self.permit = permit
     self.validFor = validFor
+    self.requestEventID = requestEventID
   }
 }
 public struct CastPayload: Codable, Sendable {
@@ -131,6 +133,10 @@ public struct SettingsPayload: Codable, Sendable {
 }
 public protocol LiveLink: Sendable {
   func send(_ envelope: WireEnvelope) async throws -> WireEnvelope
+  @MainActor func cancelPending(sessionID: UUID)
+}
+public extension LiveLink {
+  @MainActor func cancelPending(sessionID: UUID) {}
 }
 
 /// Converts a duration hint, never the other device's absolute clock.

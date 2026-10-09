@@ -18,20 +18,20 @@ final class LiveExchangeTests: XCTestCase {
     XCTAssertEqual(exchange.request.eventID, request.eventID)
     XCTAssertEqual(exchange.advance(now: 0.6), .waiting)
     XCTAssertEqual(exchange.advance(now: 0.8), .timeout)
-    XCTAssertFalse(exchange.accept(ack(request)))
+    XCTAssertFalse(exchange.accept(ack(request), now: 0.1))
     XCTAssertEqual(exchange.advance(now: 1), .finished)
   }
   func testCompletionOnceAndOldAckRejected() {
     let request = request()
     var exchange = LiveExchange(request: request, now: 0)
-    XCTAssertFalse(exchange.accept(ack(request, session: UUID())))
-    XCTAssertFalse(exchange.accept(ack(request, event: UUID())))
-    XCTAssertTrue(exchange.accept(ack(request)))
-    XCTAssertFalse(exchange.accept(ack(request)))
+    XCTAssertFalse(exchange.accept(ack(request, session: UUID()), now: 0.1))
+    XCTAssertFalse(exchange.accept(ack(request, event: UUID()), now: 0.1))
+    XCTAssertTrue(exchange.accept(ack(request), now: 0.1))
+    XCTAssertFalse(exchange.accept(ack(request), now: 0.1))
     XCTAssertEqual(exchange.advance(now: 1), .finished)
     var cancelled = LiveExchange(request: request, now: 0)
     cancelled.cancel()
-    XCTAssertFalse(cancelled.accept(ack(request)))
+    XCTAssertFalse(cancelled.accept(ack(request), now: 0.1))
   }
   func testGravityExcludedAndUnitsConverted() {
     let sample = MotionConversion.sample(t: 1, userAcceleration: SIMD3(1, 0, 0),
@@ -59,6 +59,34 @@ final class LiveExchangeTests: XCTestCase {
     let restarted = delivery.start()
     XCTAssertFalse(delivery.accepts(original))
     XCTAssertTrue(delivery.accepts(restarted))
+  }
+
+  func testReplyCannotBeatUnscheduledDeadlineTimer() {
+    let request = request()
+    var exact = LiveExchange(request: request, now: 0)
+    XCTAssertFalse(exact.accept(ack(request), now: 0.8))
+    var late = LiveExchange(request: request, now: 0)
+    XCTAssertFalse(late.accept(ack(request), now: 0.801))
+    var before = LiveExchange(request: request, now: 0)
+    XCTAssertTrue(before.accept(ack(request), now: 0.799))
+  }
+
+  func testArmReplyMustMatchExactRequestEvent() {
+    let session = UUID()
+    let request = WireEnvelope(eventID: UUID(), sessionID: session, sequence: 1, kind: .armRequest,
+      payload: try! JSONEncoder().encode(ArmRequestPayload(spell: .fireball, charge: 1)))
+    let permit = SessionPermit(sessionID: session, token: UUID(), spell: .fireball)
+    var exchange = LiveExchange(request: request, now: 0)
+    let stale = WireEnvelope(eventID: UUID(), sessionID: session, sequence: 1, kind: .armGrant,
+      payload: try! JSONEncoder().encode(ArmGrantPayload(permit: permit, validFor: 5, requestEventID: UUID())))
+    XCTAssertFalse(exchange.accept(stale, now: 0.1))
+    let current = WireEnvelope(eventID: UUID(), sessionID: session, sequence: 2, kind: .armGrant,
+      payload: try! JSONEncoder().encode(ArmGrantPayload(permit: permit, validFor: 5, requestEventID: request.eventID)))
+    XCTAssertTrue(exchange.accept(current, now: 0.2))
+    var cancelled = LiveExchange(request: request, now: 0)
+    cancelled.cancel()
+    XCTAssertEqual(cancelled.advance(now: 0.3), .finished)
+    XCTAssertFalse(cancelled.accept(current, now: 0.4))
   }
 
 }

@@ -12,6 +12,7 @@ import Foundation
   public var onAcceptedCast: ((SpellID, Double) -> Void)?
   public var onCharged: ((SpellID) -> Void)?
   public var onPushGrant: ((WireEnvelope) -> Void)?
+  private var chargedRequestID: UUID?
   private var gate = EventGate()
   private var sequence: UInt64 = 0
   private var responses: [UUID: WireEnvelope] = [:]
@@ -24,7 +25,7 @@ import Foundation
   }
   public func invalidate(reason: String) {
     if let sessionID { retire(sessionID) }
-    sessionID = nil; chargedSpell = nil; gate.revokePermits()
+    sessionID = nil; chargedSpell = nil; chargedRequestID = nil; gate.revokePermits()
   }
   private func retire(_ id: UUID) {
     retiredSessions.append(id)
@@ -37,7 +38,7 @@ import Foundation
   private func refreshAvailability() {
     gate.available = isReady
     if !isReady { gate.revokePermits() }
-    if !foreground || !trackingNormal { chargedSpell = nil }
+    if !foreground || !trackingNormal { chargedSpell = nil; chargedRequestID = nil }
   }
   private func envelope<T: Encodable>(_ kind: WireKind, _ payload: T, session: UUID) -> WireEnvelope {
     sequence += 1
@@ -55,7 +56,7 @@ import Foundation
         if let sessionID { retire(sessionID) }
         responses = [:]; responseOrder = []
         sessionID = request.sessionID; gate.reset(sessionID: request.sessionID)
-        chargedSpell = nil; sequence = 0
+        chargedSpell = nil; chargedRequestID = nil; sequence = 0
       }
       mode = hello.requestedMode
       refreshAvailability()
@@ -68,18 +69,19 @@ import Foundation
     }
     // Charging may be acknowledged before recording starts. It is not a cast capability.
     gate.available = foreground && sessionID == request.sessionID &&
-      (request.kind == .armRequest || isReady)
+      ([.armRequest, .pause, .end].contains(request.kind) || isReady)
     let receipt = gate.accept(request, now: now)
     if receipt == .accepted {
       if request.kind == .armRequest,
          let arm = try? JSONDecoder().decode(ArmRequestPayload.self, from: request.payload), arm.charge == 1 {
-        chargedSpell = arm.spell; onCharged?(arm.spell)
+        gate.revokePermits()
+        chargedSpell = arm.spell; chargedRequestID = request.eventID; onCharged?(arm.spell)
         if let grant = grantIfReady(now: now) { remember(grant, for: request.eventID); return grant }
       } else if request.kind == .cast,
                 let cast = try? JSONDecoder().decode(CastPayload.self, from: request.payload) {
-        chargedSpell = nil; onAcceptedCast?(cast.permit.spell, now)
+        chargedSpell = nil; chargedRequestID = nil; onAcceptedCast?(cast.permit.spell, now)
       } else if request.kind == .pause || request.kind == .end {
-        chargedSpell = nil
+        chargedSpell = nil; chargedRequestID = nil
       }
     }
     let ack = gate.acknowledgement(for: request.eventID) ?? AckPayload(receipt: receipt, eventID: request.eventID)
@@ -89,13 +91,13 @@ import Foundation
   }
   /// Called after the first valid captured frame; no arm-request reply waits on countdown UI.
   public func grantIfReady(now: Double) -> WireEnvelope? {
-    guard isReady, let sessionID, let spell = chargedSpell else { return nil }
+    guard isReady, let sessionID, let spell = chargedSpell, let requestID = chargedRequestID else { return nil }
     let validFor = mode == .showOff ? (captureCutoff! - now) : 5
     guard validFor > 0.3 else { return nil }
     gate.available = true
     let permit = gate.grant(sessionID: sessionID, spell: spell, now: now, validFor: validFor)
-    chargedSpell = nil
-    return envelope(.armGrant, ArmGrantPayload(permit: permit, validFor: validFor), session: sessionID)
+    chargedSpell = nil; chargedRequestID = nil
+    return envelope(.armGrant, ArmGrantPayload(permit: permit, validFor: validFor, requestEventID: requestID), session: sessionID)
   }
   public func captureDidStart(firstFrame: Double, cutoff: Double, now: Double) {
     captureFirstFrame = firstFrame; captureCutoff = cutoff

@@ -47,13 +47,13 @@ public enum LinkError: Error { case unavailable, notInstalled, timeout, invalidR
         timers[envelope.eventID] = Task { [weak self] in
           do {
             try await Task.sleep(for: .milliseconds(300))
-            guard let self, pending[envelope.eventID] != nil else { return }
-            let step = exchanges[envelope.eventID]?.advance(now: ProcessInfo.processInfo.systemUptime)
-            if step == .timeout { finish(envelope.eventID, result: .failure(LinkError.timeout)); return }
-            if step == .retry, available { transmit(data, request: envelope) }
+            guard let self, self.pending[envelope.eventID] != nil else { return }
+            let step = self.exchanges[envelope.eventID]?.advance(now: ProcessInfo.processInfo.systemUptime)
+            if step == .timeout { self.finish(envelope.eventID, result: .failure(LinkError.timeout)); return }
+            if step == .retry, self.available { self.transmit(data, request: envelope) }
             let remaining = max(0, 0.8 - (ProcessInfo.processInfo.systemUptime - started))
             try await Task.sleep(for: .seconds(remaining))
-            finish(envelope.eventID, result: .failure(LinkError.timeout))
+            self.finish(envelope.eventID, result: .failure(LinkError.timeout))
           } catch { }
         }
       }
@@ -65,8 +65,8 @@ public enum LinkError: Error { case unavailable, notInstalled, timeout, invalidR
     session.sendMessageData(data, replyHandler: { [weak self] response in
       Task { @MainActor in
         guard let self, let reply = WireEnvelope.decode(response), reply.sessionID == request.sessionID else { return }
-        guard exchanges[request.eventID]?.accept(reply) == true else { return }
-        finish(request.eventID, result: .success(reply))
+        guard self.exchanges[request.eventID]?.accept(reply, now: ProcessInfo.processInfo.systemUptime) == true else { return }
+        self.finish(request.eventID, result: .success(reply))
       }
     }, errorHandler: { [weak self] _ in
       // A transient per-attempt error does not create a new event or reset its deadline.
@@ -78,6 +78,11 @@ public enum LinkError: Error { case unavailable, notInstalled, timeout, invalidR
     timers.removeValue(forKey: id)?.cancel()
     exchanges.removeValue(forKey: id)
     continuation.resume(with: result)
+  }
+  public func cancelPending(sessionID: UUID) {
+    for (id, exchange) in exchanges where exchange.request.sessionID == sessionID {
+      finish(id, result: .failure(CancellationError()))
+    }
   }
   private func cancelPending() {
     for id in Array(pending.keys) { finish(id, result: .failure(LinkError.unavailable)) }
@@ -111,8 +116,8 @@ public enum LinkError: Error { case unavailable, notInstalled, timeout, invalidR
     // WCSession's legacy reply closure is not Sendable; confine it to this immutable box.
     let reply = ReplyBox(replyHandler)
     Task { @MainActor [weak self] in
-      guard let self, foreground, let envelope = WireEnvelope.decode(data),
-        let response = onEnvelope?(envelope), let encoded = try? JSONEncoder().encode(response) else {
+      guard let self, self.foreground, let envelope = WireEnvelope.decode(data),
+        let response = self.onEnvelope?(envelope), let encoded = try? JSONEncoder().encode(response) else {
         reply.call(Data()); return
       }
       reply.call(encoded)
@@ -121,8 +126,8 @@ public enum LinkError: Error { case unavailable, notInstalled, timeout, invalidR
   nonisolated public func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
     guard let data = applicationContext["settings"] as? Data else { return }
     Task { @MainActor [weak self] in
-      guard let self, let value = try? JSONDecoder().decode(SettingsPayload.self, from: data), value.revision > settingsRevision else { return }
-      settingsRevision = value.revision; onSettings?(value)
+      guard let self, let value = try? JSONDecoder().decode(SettingsPayload.self, from: data), value.revision > self.settingsRevision else { return }
+      self.settingsRevision = value.revision; self.onSettings?(value)
     }
   }
   #if os(iOS)

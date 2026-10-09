@@ -22,6 +22,11 @@ public enum FeedbackEvent: Sendable { case start, ready, released, retry, paused
   private var readyDeadline: Double?
   private var lastRelease: Double = -.infinity
   private var armRequested = false
+  private var armRequestID: UUID?
+  private var armGeneration: UInt64?
+  private var requests: [UUID: Task<Void, Never>] = [:]
+  private var consumedEvents: [UUID] = []
+  private var consumedTokens: [UUID] = []
   private var trigger = GestureTrigger(profiles: Dictionary(uniqueKeysWithValues: SpellID.allCases.map { ($0, .experimental($0)) }))
   public init(link: (any LiveLink)? = nil, now: @escaping () -> Double = { ProcessInfo.processInfo.systemUptime }) {
     self.link = link; self.now = now
@@ -37,22 +42,55 @@ public enum FeedbackEvent: Sendable { case start, ready, released, retry, paused
     if mode != .practice { connect() } else { message = "离线练习" }
   }
   public func connect() {
-    guard mode != .practice, let link else { return }
+    guard mode != .practice, link != nil else { return }
     disconnect(reason: "正在连接")
     let epoch = generation
     let hello = make(.hello, HelloPayload(appVersion: "0.1.0", requestedMode: mode))
-    Task {
+    submit(hello) { [weak self] response in
+      guard let self, self.generation == epoch, response.sessionID == self.sessionID,
+        let ack = try? JSONDecoder().decode(AckPayload.self, from: response.payload),
+        ack.eventID == hello.eventID, ack.receipt == .accepted else { return }
+      self.connected = true; self.message = "已连接"
+    } failure: { [weak self] in self?.disconnect(reason: "连接失败，请重试") }
+  }
+  private func submit(_ envelope: WireEnvelope,
+    success: @escaping @MainActor (WireEnvelope) -> Void,
+    failure: @escaping @MainActor () -> Void = {}) {
+    guard let link else { return }
+    let epoch = generation
+    self.requests[envelope.eventID] = Task { [weak self] in
       do {
-        let response = try await link.send(hello)
-        guard generation == epoch, response.sessionID == sessionID,
-          let ack = try? JSONDecoder().decode(AckPayload.self, from: response.payload),
-          ack.eventID == hello.eventID, ack.receipt == .accepted else { return }
-        connected = true; message = "已连接"
-      } catch { if generation == epoch { disconnect(reason: "连接失败，请重试") } }
+        try Task.checkCancellation()
+        let response = try await link.send(envelope)
+        guard let self else { return }
+        self.requests.removeValue(forKey: envelope.eventID)
+        guard !Task.isCancelled, self.generation == epoch else { return }
+        success(response)
+      } catch {
+        guard let self else { return }
+        self.requests.removeValue(forKey: envelope.eventID)
+        guard !Task.isCancelled, self.generation == epoch else { return }
+        failure()
+      }
     }
   }
+  /// Stop retries synchronously before issuing the newer revocation sequence.
+  private func cancelCycle(revoke kind: WireKind? = nil) {
+    for task in requests.values { task.cancel() }
+    requests.removeAll()
+    link?.cancelPending(sessionID: sessionID)
+    generation += 1
+    armRequestID = nil; armGeneration = nil
+    permit = nil; readyDeadline = nil; armRequested = false
+    if connected, let kind {
+      let revocation = make(kind, ReasonPayload(reason: "Watch casting cycle ended"))
+      submit(revocation, success: { _ in })
+    }
+  }
+
   public func disconnect(reason: String) {
-    generation += 1; sessionID = UUID(); sequence = 0; connected = false
+    cancelCycle(revoke: .end)
+    sessionID = UUID(); sequence = 0; connected = false
     permit = nil; readyDeadline = nil; armRequested = false; trigger.reset()
     let wasPaused = state.phase == .paused
     state = CastReducer.reduce(state, .reset)
@@ -75,7 +113,13 @@ public enum FeedbackEvent: Sendable { case start, ready, released, retry, paused
       envelope.kind == .armGrant, state.phase == .charging, state.charge == 1,
       let grant = try? JSONDecoder().decode(ArmGrantPayload.self, from: envelope.payload),
       grant.permit.spell == state.spell,
+      grant.requestEventID == armRequestID, armRequestID != nil, armGeneration == generation,
+      !consumedEvents.contains(envelope.eventID), !consumedTokens.contains(grant.permit.token),
       let duration = PermitTiming.watchReadyDuration(mode: mode, grantValidFor: grant.validFor) else { return false }
+    consumedEvents.append(envelope.eventID); consumedTokens.append(grant.permit.token)
+    if consumedEvents.count > 256 { consumedEvents.removeFirst() }
+    if consumedTokens.count > 256 { consumedTokens.removeFirst() }
+    armRequestID = nil; armGeneration = nil
     permit = grant.permit; readyDeadline = now() + duration
     state = CastReducer.reduce(state, .armed); onFeedback?(.ready); message = "就绪，挥动或轻点施法"
     return true
@@ -92,22 +136,19 @@ public enum FeedbackEvent: Sendable { case start, ready, released, retry, paused
       guard state.phase == .ready, readyDeadline.map({ now() < $0 }) ?? false,
         now() - lastRelease >= 0.7 else { tick(); return }
       if mode != .practice {
-        guard connected, let permit, let link else { return }
+        guard connected, let permit, link != nil else { return }
         let request = make(.cast, CastPayload(permit: permit, charge: state.charge))
         self.permit = nil; readyDeadline = nil
         state = CastReducer.reduce(state, .trigger); onMotionStop?()
         let epoch = generation
-        Task {
-          do {
-            let response = try await link.send(request)
-            guard epoch == generation,
-              let ack = try? JSONDecoder().decode(AckPayload.self, from: response.payload),
-              ack.eventID == request.eventID, ack.receipt == .accepted else {
-              if epoch == generation { message = "施法未接受，请重新准备" }; return
-            }
-            onFeedback?(.released); message = "施法成功"
-          } catch { if epoch == generation { message = "结果未知，请重新准备" } }
-        }
+        submit(request) { [weak self] response in
+          guard let self, epoch == self.generation, response.sessionID == self.sessionID,
+            let ack = try? JSONDecoder().decode(AckPayload.self, from: response.payload),
+            ack.eventID == request.eventID, ack.receipt == .accepted else {
+            self?.message = "施法未接受，请重新准备"; return
+          }
+          self.onFeedback?(.released); self.message = "施法成功"
+        } failure: { [weak self] in self?.message = "结果未知，请重新准备" }
       } else {
         state = CastReducer.reduce(state, .trigger); onFeedback?(.released); onMotionStop?()
       }
@@ -117,36 +158,34 @@ public enum FeedbackEvent: Sendable { case start, ready, released, retry, paused
     state = CastReducer.reduce(state, action)
     switch action {
     case .pause:
-      generation += 1; connected = false; permit = nil; readyDeadline = nil
+      cancelCycle(revoke: .pause); connected = false
       onMotionStop?(); onSoundStop?(); onFeedback?(.paused)
     case .resume:
       armRequested = false; trigger.reset(); if mode != .practice { connect() }
     case .prepare where before != state.phase:
-      generation += 1; armRequested = false; permit = nil; trigger.reset(); onMotionStart?(); onFeedback?(.start)
+      cancelCycle(revoke: .pause); trigger.reset(); onMotionStart?(); onFeedback?(.start)
     case .crown where state.phase == .charging && state.charge < 1:
-      if armRequested { generation += 1; armRequested = false; permit = nil }
+      if armRequested { cancelCycle(revoke: .pause) }
     case .crown where state.phase == .charging && state.charge == 1 && !armRequested:
       armRequested = true
       if mode == .practice {
         state = CastReducer.reduce(state, .armed); readyDeadline = now() + 4; onFeedback?(.ready)
-      } else if connected, let link {
+      } else if connected, link != nil {
         let request = make(.armRequest, ArmRequestPayload(spell: state.spell, charge: 1))
-        let epoch = generation
-        Task {
-          do {
-            let response = try await link.send(request)
-            guard epoch == generation else { return }
-            if response.kind == .armGrant { receive(response) }
-            else if let ack = try? JSONDecoder().decode(AckPayload.self, from: response.payload), ack.receipt == .accepted {
-              message = "已蓄满，等待 iPhone 准备"
-            } else { disconnect(reason: "舞台尚未准备，请重试") }
-          } catch { if epoch == generation { disconnect(reason: "连接中断，请重试") } }
-        }
+        armRequestID = request.eventID; armGeneration = generation
+        submit(request) { [weak self] response in
+          guard let self, response.sessionID == self.sessionID else { return }
+          if response.kind == .armGrant { self.receive(response) }
+          else if let ack = try? JSONDecoder().decode(AckPayload.self, from: response.payload),
+            ack.eventID == request.eventID, ack.receipt == .accepted {
+            self.message = "已蓄满，等待 iPhone 准备"
+          } else { self.disconnect(reason: "舞台尚未准备，请重试") }
+        } failure: { [weak self] in self?.disconnect(reason: "连接中断，请重试") }
       } else { disconnect(reason: "请先连接 iPhone 舞台") }
     case .timeout:
-      permit = nil; readyDeadline = nil; onMotionStop?(); onFeedback?(.retry)
+      cancelCycle(revoke: .pause); onMotionStop?(); onFeedback?(.retry)
     case .reset, .select:
-      generation += 1; permit = nil; readyDeadline = nil; armRequested = false; onMotionStop?(); onSoundStop?()
+      cancelCycle(revoke: .end); onMotionStop?(); onSoundStop?()
     default: break
     }
   }

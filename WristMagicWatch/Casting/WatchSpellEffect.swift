@@ -7,8 +7,9 @@ struct WatchSpellEffect: View {
   let reducedMotion: Bool
   @Environment(\.accessibilityReduceMotion) private var systemReducedMotion
   @State private var started = Date()
+  @State private var completed = false
   var body: some View {
-    TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reducedMotion || systemReducedMotion)) { timeline in
+    TimelineView(.animation(minimumInterval: 1.0 / 30, paused: completed || reducedMotion || systemReducedMotion)) { timeline in
       Canvas { context, size in
         let reduced = reducedMotion || systemReducedMotion
         let elapsed = timeline.date.timeIntervalSince(started)
@@ -35,5 +36,10 @@ struct WatchSpellEffect: View {
     }
     .frame(height: 80)
     .accessibilityHidden(true)
+    .task {
+      started = Date(); completed = false
+      try? await Task.sleep(for: .milliseconds(1500))
+      completed = true
+    }
   }
 }

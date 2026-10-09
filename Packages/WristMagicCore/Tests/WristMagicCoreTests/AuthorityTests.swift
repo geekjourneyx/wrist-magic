@@ -24,6 +24,7 @@ final class AuthorityTests: XCTestCase {
       XCTAssertEqual(pushed?.kind, .armGrant)
       let grant = try! JSONDecoder().decode(ArmGrantPayload.self, from: pushed!.payload)
       XCTAssertEqual(grant.validFor, 4.5)
+      XCTAssertEqual(grant.requestEventID, arm.eventID)
       var emitted = 0
       authority.onAcceptedCast = { _, _ in emitted += 1 }
       let cast = Self.envelope(.cast, CastPayload(permit: grant.permit, charge: 1), session: session, sequence: 3)
@@ -60,4 +61,26 @@ final class AuthorityTests: XCTestCase {
       XCTAssertNil(authority.chargedSpell)
     }
   }
+  func testPauseRevokesChargeBeforeFutureFirstFrame() {
+    MainActor.assumeIsolated {
+      let authority = SessionCoordinator()
+      authority.foreground = true
+      authority.trackingNormal = true
+      let session = UUID()
+      _ = authority.receive(Self.envelope(.hello,
+        HelloPayload(appVersion: "test", requestedMode: .showOff), session: session, sequence: 1), now: 0)
+      _ = authority.receive(Self.envelope(.armRequest,
+        ArmRequestPayload(spell: .fireball, charge: 1), session: session, sequence: 2), now: 1)
+      XCTAssertEqual(authority.chargedSpell, .fireball)
+      let reply = authority.receive(Self.envelope(.pause,
+        ReasonPayload(reason: "Watch paused"), session: session, sequence: 3), now: 2)
+      XCTAssertEqual(try! JSONDecoder().decode(AckPayload.self, from: reply.payload).receipt, .accepted)
+      XCTAssertNil(authority.chargedSpell)
+      var pushed = false
+      authority.onPushGrant = { _ in pushed = true }
+      authority.captureDidStart(firstFrame: 3, cutoff: 7.5, now: 3)
+      XCTAssertFalse(pushed)
+    }
+  }
+
 }

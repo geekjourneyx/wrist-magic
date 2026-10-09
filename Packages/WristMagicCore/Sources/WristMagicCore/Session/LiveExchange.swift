@@ -15,14 +15,16 @@ public struct LiveExchange: Sendable {
     if !retried, now - start >= 0.3 { retried = true; return .retry }
     return .waiting
   }
-  public mutating func accept(_ response: WireEnvelope) -> Bool {
-    guard !completed, response.isValid, response.sessionID == request.sessionID else { return false }
+  public mutating func accept(_ response: WireEnvelope, now: Double) -> Bool {
+    guard !completed else { return false }
+    guard now.isFinite, now >= start, now - start < 0.8 else { completed = true; return false }
+    guard response.isValid, response.sessionID == request.sessionID else { return false }
     if response.kind == .ack {
       guard let ack = try? JSONDecoder().decode(AckPayload.self, from: response.payload), ack.eventID == request.eventID else { return false }
     } else {
       guard request.kind == .armRequest, response.kind == .armGrant,
         let arm = try? JSONDecoder().decode(ArmRequestPayload.self, from: request.payload),
-        let grant = try? JSONDecoder().decode(ArmGrantPayload.self, from: response.payload), grant.permit.spell == arm.spell else { return false }
+        let grant = try? JSONDecoder().decode(ArmGrantPayload.self, from: response.payload), grant.permit.spell == arm.spell, grant.requestEventID == request.eventID else { return false }
     }
     completed = true
     return true
