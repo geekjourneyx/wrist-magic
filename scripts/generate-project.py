@@ -41,8 +41,8 @@ for name in names:
   settings.update({'TEST_HOST':q('$(BUILT_PRODUCTS_DIR)/'+host+'.app/'+host),'BUNDLE_LOADER':q('$(TEST_HOST)')})
  if not test:
   settings.update({'INFOPLIST_KEY_CFBundleDisplayName':q('腕术'),'MARKETING_VERSION':'0.1.0','CURRENT_PROJECT_VERSION':'1'})
-  if watch: settings.update({'INFOPLIST_KEY_WKApplication':'YES','INFOPLIST_KEY_WKCompanionAppBundleIdentifier':'io.github.geekjourneyx.wristmagic','INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp':'YES','SKIP_INSTALL':'YES'})
-  else: settings.update({'INFOPLIST_KEY_UILaunchScreen_Generation':'YES','INFOPLIST_KEY_UISupportedInterfaceOrientations':'UIInterfaceOrientationPortrait','INFOPLIST_KEY_NSCameraUsageDescription':q('相机用于现实舞台和法术短片。Camera creates your spell stage and clips.')})
+  if watch: settings.update({'INFOPLIST_KEY_WKApplication':'YES','INFOPLIST_KEY_WKCompanionAppBundleIdentifier':'io.github.geekjourneyx.wristmagic','INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp':'YES','SKIP_INSTALL':'YES','INFOPLIST_KEY_NSMotionUsageDescription':q('Wrist motion recognizes your spell gesture during practice and casting.')})
+  else: settings.update({'INFOPLIST_KEY_UILaunchScreen_Generation':'YES','INFOPLIST_KEY_UISupportedInterfaceOrientations':'UIInterfaceOrientationPortrait','INFOPLIST_KEY_NSCameraUsageDescription':q('Camera displays the real world stage and records spell clips.'),'INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription':q('Save your spell clip only when you tap Save.')})
  configs=[]
  for c in ['Debug','Release']:
   st=settings.copy(); st['SWIFT_OPTIMIZATION_LEVEL']=q('-Onone' if c=='Debug' else '-O')

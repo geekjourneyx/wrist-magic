@@ -11,7 +11,7 @@ public struct SessionPermit: Codable, Sendable, Equatable {
   }
 }
 public enum WireKind: String, Codable, Sendable, CaseIterable {
-  case hello, select, armRequest, armGrant, cast, ack, pause, end, settings
+  case hello, select, armRequest, armGrant, cast, ack, pause, end, settings, practiceResult
 }
 public struct WireEnvelope: Codable, Sendable {
   public let version: Int
@@ -59,6 +59,7 @@ public struct WireEnvelope: Codable, Sendable {
     case .pause, .end:
       guard let p = try? d.decode(ReasonPayload.self, from: payload) else { return false }
       return !p.reason.isEmpty
+    case .practiceResult: return (try? d.decode(SelectPayload.self, from: payload)) != nil
     case .settings: return (try? d.decode(SettingsPayload.self, from: payload)) != nil
     }
   }

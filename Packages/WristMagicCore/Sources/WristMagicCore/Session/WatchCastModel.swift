@@ -16,6 +16,7 @@ public enum FeedbackEvent: Sendable { case start, ready, released, retry, paused
   public var onSoundStop: (() -> Void)?
   private let now: () -> Double
   private var link: (any LiveLink)?
+  private var phoneSequence: UInt64 = 0
   private var sequence: UInt64 = 0
   private var generation: UInt64 = 0
   private var permit: SessionPermit?
@@ -90,7 +91,7 @@ public enum FeedbackEvent: Sendable { case start, ready, released, retry, paused
 
   public func disconnect(reason: String) {
     cancelCycle(revoke: .end)
-    sessionID = UUID(); sequence = 0; connected = false
+    sessionID = UUID(); sequence = 0; phoneSequence = 0; connected = false
     permit = nil; readyDeadline = nil; armRequested = false; trigger.reset()
     let wasPaused = state.phase == .paused
     state = CastReducer.reduce(state, .reset)
@@ -108,6 +109,22 @@ public enum FeedbackEvent: Sendable { case start, ready, released, retry, paused
     settings = value
     if !value.sound { onSoundStop?() }
   }
+  public func receivePhoneCommand(_ envelope: WireEnvelope) -> Receipt {
+    guard connected, envelope.isValid, envelope.sessionID == sessionID,
+      envelope.sequence > phoneSequence else { return .stale }
+    guard state.phase != .charging && state.phase != .ready else { return .unavailable }
+    if envelope.kind == .select,
+      let selection = try? JSONDecoder().decode(SelectPayload.self, from: envelope.payload) {
+      phoneSequence = envelope.sequence
+      send(.select(selection.spell)); return .accepted
+    }
+    if envelope.kind == .hello,
+      let hello = try? JSONDecoder().decode(HelloPayload.self, from: envelope.payload), hello.requestedMode != .practice {
+      phoneSequence = envelope.sequence
+      setMode(hello.requestedMode); return .accepted
+    }
+    return .invalid
+  }
   @discardableResult public func receive(_ envelope: WireEnvelope) -> Bool {
     guard connected, envelope.isValid, envelope.sessionID == sessionID,
       envelope.kind == .armGrant, state.phase == .charging, state.charge == 1,
@@ -116,6 +133,7 @@ public enum FeedbackEvent: Sendable { case start, ready, released, retry, paused
       grant.requestEventID == armRequestID, armRequestID != nil, armGeneration == generation,
       !consumedEvents.contains(envelope.eventID), !consumedTokens.contains(grant.permit.token),
       let duration = PermitTiming.watchReadyDuration(mode: mode, grantValidFor: grant.validFor) else { return false }
+    phoneSequence = max(phoneSequence, envelope.sequence)
     consumedEvents.append(envelope.eventID); consumedTokens.append(grant.permit.token)
     if consumedEvents.count > 256 { consumedEvents.removeFirst() }
     if consumedTokens.count > 256 { consumedTokens.removeFirst() }
@@ -151,6 +169,7 @@ public enum FeedbackEvent: Sendable { case start, ready, released, retry, paused
         } failure: { [weak self] in self?.message = "结果未知，请重新准备" }
       } else {
         state = CastReducer.reduce(state, .trigger); onFeedback?(.released); onMotionStop?()
+        submit(make(.practiceResult, SelectPayload(spell: state.spell)), success: { _ in })
       }
       lastRelease = now(); permit = nil; readyDeadline = nil; return
     }

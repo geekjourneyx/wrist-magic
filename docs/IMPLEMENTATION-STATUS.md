@@ -6,13 +6,13 @@
 |---|---|---|
 | S01 原生双端工程 | 已实现 | iPhone/Watch Debug、Release 构建及双端模拟器 smoke test 通过 |
 | S02 共享逻辑 | 已实现并通过独立审查 | 16项核心测试、双端构建与模拟器测试已在 macOS CI 通过 |
-| S03 Watch、传感器、双端通信 | 已实现并通过独立审查 | 29项核心测试通过；新增原生测试与最终Apple构建验证中 |
-| S04 AR、Metal、录像、音效、存储 | 开发中 | 待集成测试 |
-| S05 iPhone 完整产品流程 | 待开发 | 待测试 |
+| S03 Watch、传感器、双端通信 | 已实现并通过独立审查 | macOS CI：核心29、iOS4、Watch4项测试及双端Debug/Release构建全部通过 |
+| S04 AR、Metal、录像、音效、存储 | 已实现并通过源码审查 | 双端构建通过；媒体实测发现临时文件格式识别与Metal回调问题，已修复，20项媒体测试复验中 |
+| S05 iPhone 完整产品流程 | 开发中 | 待集成测试 |
 | S06 视觉组件、无障碍、UI回归 | 待开发 | 待模拟器验证 |
 | S07 整体审查与交付 | 待完成 | 未达到完整软件交付状态 |
 
-通过证据：[macOS CI 37914079907](https://github.com/geekjourneyx/wrist-magic/actions/runs/37914079907)，测试代码快照 `b1e0cb5`。核心门控修复快照 `f5119a8` 已通过 [CI 37914519050](https://github.com/geekjourneyx/wrist-magic/actions/runs/37914519050)。S03 快照 `13e6e46` 对应 [CI 37917010552](https://github.com/geekjourneyx/wrist-magic/actions/runs/37917010552)，尚待完成。构建环境 Xcode16.4；不代表已支持或测试用户真机上的具体系统。
+通过证据：[macOS CI 37914079907](https://github.com/geekjourneyx/wrist-magic/actions/runs/37914079907)，测试代码快照 `b1e0cb5`。核心门控修复快照 `f5119a8` 已通过 [CI 37914519050](https://github.com/geekjourneyx/wrist-magic/actions/runs/37914519050)。S03 快照 `13e6e46` 对应 [CI 37917010552](https://github.com/geekjourneyx/wrist-magic/actions/runs/37917010552)，已全部通过。构建环境 Xcode16.4；不代表已支持或测试用户真机上的具体系统。
 
 Linux的Swift运行环境存在进程信息不匹配导致的间歇性Signal4；已有成功测试输出，但不能称本地环境稳定。正式Apple编译与模拟器验收以macOS CI为准。
 
@@ -25,3 +25,5 @@ Linux的Swift运行环境存在进程信息不匹配导致的间歇性Signal4；
 - Instruments功耗、热状态、内存；实际VoiceOver及视觉体验验收。
 
 这些项目均未测试，不能将模拟器通过当作真机通过。完整代码仍在开发，功能缺口不会归入真机测试来隐藏。
+
+媒体最新复验：[CI 37920367540](https://github.com/geekjourneyx/wrist-magic/actions/runs/37920367540)，代码快照 `0a1f7fb`（本地修订 `cfb165a`）。源代码审查通过与原生运行通过分开记录；S04在复验通过前不计为最终验收完成。

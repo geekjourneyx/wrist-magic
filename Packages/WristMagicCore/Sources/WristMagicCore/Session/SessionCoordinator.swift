@@ -7,11 +7,12 @@ import Foundation
   public private(set) var chargedSpell: SpellID?
   public var foreground = false { didSet { refreshAvailability() } }
   public var trackingNormal = false { didSet { refreshAvailability() } }
-  public var captureFirstFrame: Double? { didSet { refreshAvailability() } }
+  public var captureFirstFrame: Double? { didSet { if captureFirstFrame == nil { captureCastConsumed = false }; refreshAvailability() } }
   public var captureCutoff: Double? { didSet { refreshAvailability() } }
   public var onAcceptedCast: ((SpellID, Double) -> Void)?
   public var onCharged: ((SpellID) -> Void)?
   public var onPushGrant: ((WireEnvelope) -> Void)?
+  private var captureCastConsumed = false
   private var chargedRequestID: UUID?
   private var gate = EventGate()
   private var sequence: UInt64 = 0
@@ -21,7 +22,7 @@ import Foundation
   public init() {}
   public var isReady: Bool {
     sessionID != nil && foreground && trackingNormal &&
-      (mode != .showOff || (captureFirstFrame != nil && captureCutoff != nil))
+      (mode != .showOff || (!captureCastConsumed && captureFirstFrame != nil && captureCutoff != nil))
   }
   public func invalidate(reason: String) {
     if let sessionID { retire(sessionID) }
@@ -45,6 +46,10 @@ import Foundation
     return WireEnvelope(eventID: UUID(), sessionID: session, sequence: sequence,
       kind: kind, payload: (try? JSONEncoder().encode(payload)) ?? Data())
   }
+  public func command<T: Encodable>(_ kind: WireKind, payload: T) -> WireEnvelope? {
+    guard let sessionID else { return nil }
+    return envelope(kind, payload, session: sessionID)
+  }
   public func receive(_ request: WireEnvelope, now: Double) -> WireEnvelope {
     if retiredSessions.contains(request.sessionID) {
       return envelope(.ack, AckPayload(receipt: .stale, eventID: request.eventID), session: request.sessionID)
@@ -63,6 +68,9 @@ import Foundation
       return envelope(.ack, AckPayload(receipt: foreground ? .accepted : .unavailable,
         eventID: request.eventID), session: request.sessionID)
     }
+    if mode == .showOff, captureCastConsumed, request.kind == .armRequest || request.kind == .cast {
+      return envelope(.ack, AckPayload(receipt: .unavailable, eventID: request.eventID), session: request.sessionID)
+    }
     if request.kind == .armRequest,
        let arm = try? JSONDecoder().decode(ArmRequestPayload.self, from: request.payload), arm.charge != 1 {
       return envelope(.ack, AckPayload(receipt: .invalid, eventID: request.eventID), session: request.sessionID)
@@ -79,6 +87,7 @@ import Foundation
         if let grant = grantIfReady(now: now) { remember(grant, for: request.eventID); return grant }
       } else if request.kind == .cast,
                 let cast = try? JSONDecoder().decode(CastPayload.self, from: request.payload) {
+        if mode == .showOff { captureCastConsumed = true; gate.revokePermits() }
         chargedSpell = nil; chargedRequestID = nil; onAcceptedCast?(cast.permit.spell, now)
       } else if request.kind == .pause || request.kind == .end {
         chargedSpell = nil; chargedRequestID = nil

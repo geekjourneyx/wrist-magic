@@ -31,6 +31,11 @@ final class AuthorityTests: XCTestCase {
       _ = authority.receive(cast, now: 3)
       _ = authority.receive(cast, now: 3.1)
       XCTAssertEqual(emitted, 1)
+      let secondArm = Self.envelope(.armRequest, ArmRequestPayload(spell: .lightning, charge: 1), session: session, sequence: 4)
+      let secondReply = authority.receive(secondArm, now: 3.2)
+      XCTAssertEqual(secondReply.kind, .ack)
+      XCTAssertEqual(try! JSONDecoder().decode(AckPayload.self, from: secondReply.payload).receipt, .unavailable)
+      XCTAssertNil(authority.grantIfReady(now: 3.3))
     }
   }
   func testInactivePhoneRejectsCastAndReconnectRetiresOldSession() {
