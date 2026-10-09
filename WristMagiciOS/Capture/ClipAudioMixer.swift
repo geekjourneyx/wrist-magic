@@ -1,4 +1,4 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import WristMagicCore
 
 @MainActor final class PhoneSoundPlayer {

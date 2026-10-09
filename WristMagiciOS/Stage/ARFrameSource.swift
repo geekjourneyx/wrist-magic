@@ -1,5 +1,5 @@
 import ARKit
-import AVFoundation
+@preconcurrency import AVFoundation
 
 /// Sole owner of the rear camera. UI must request permission before start().
 @MainActor final class ARFrameSource: NSObject, ARSessionDelegate {

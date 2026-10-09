@@ -28,6 +28,7 @@ float3 spell(float2 uv, constant EffectParameters &e, constant FrameUniforms &u)
     brightness=exp(-d*d/ .00032)*.9 + exp(-trail*trail/.000045)*.35*(1.-progress);
     brightness+=exp(-d*70.)*.2;
   } else if(e.shape.x < 1.5) {
+    a=project(e.originAndProgress.xyz + float3(0,.65,0),u)*float2(.5625,1);
     float2 previous=a;
     for(uint i=1;i<=9;i++) {
       float f=float(i)/9.;

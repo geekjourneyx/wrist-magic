@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 struct ClipRecord: Codable, Sendable, Identifiable {
   let id: UUID
@@ -35,7 +36,8 @@ struct ClipRecord: Codable, Sendable, Identifiable {
     try JSONEncoder().encode(records).write(to:directory.appendingPathComponent("index.json"),options:.atomic)
   }
   func commit(tempURL: URL, report: ClipReport, interrupted: Bool = false) throws -> ClipRecord {
-    guard report.valid, manager.fileExists(atPath:tempURL.path) else { throw MediaError.invalidClip }
+    guard report.valid, let digest = report.validatedSHA256, manager.fileExists(atPath:tempURL.path),
+      SHA256.hash(data:try Data(contentsOf:tempURL)).description == digest else { throw MediaError.invalidClip }
     let size = try tempURL.resourceValues(forKeys:[.fileSizeKey]).fileSize ?? 0
     guard size > 0 else { throw MediaError.invalidClip }
     let available = try directory.resourceValues(forKeys:[.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage

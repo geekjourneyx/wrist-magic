@@ -1,4 +1,4 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 
 /// All writer calls are serialized by the main actor. No application frame queue is retained.
 enum MediaError: Error { case invalidState, invalidPTS, writerFailed, pixelBuffer, invalidClip, unsupported, tracking, casting, gpu, storage, audio }
@@ -9,6 +9,7 @@ enum MediaError: Error { case invalidState, invalidPTS, writerFailed, pixelBuffe
   private let writer: AVAssetWriter
   private let input: AVAssetWriterInput
   private let adaptor: AVAssetWriterInputPixelBufferAdaptor
+  private var sessionStart: CMTime?
   private var lastPTS: CMTime?
   private var result: Result<URL, Error>?
   private var finishTask: Task<URL, Error>?
@@ -32,11 +33,11 @@ enum MediaError: Error { case invalidState, invalidPTS, writerFailed, pixelBuffe
   func start(at time: CMTime) throws {
     guard state == .idle, time.isNumeric else { throw MediaError.invalidState }
     guard writer.startWriting() else { state = .failed; throw writer.error ?? MediaError.writerFailed }
-    writer.startSession(atSourceTime: time); state = .writing
+    writer.startSession(atSourceTime: time); sessionStart = time; state = .writing
   }
   @discardableResult func append(buffer: CVPixelBuffer, pts: CMTime) throws -> Bool {
     guard state == .writing else { throw MediaError.invalidState }
-    guard pts.isNumeric, pts >= .zero, lastPTS == nil || pts > lastPTS! else { throw MediaError.invalidPTS }
+    guard pts.isNumeric, pts >= (sessionStart ?? .zero), lastPTS == nil || pts > lastPTS! else { throw MediaError.invalidPTS }
     guard writer.status == .writing else { state = .failed; throw writer.error ?? MediaError.writerFailed }
     guard input.isReadyForMoreMediaData else { return false }
     guard adaptor.append(buffer, withPresentationTime: pts) else { state = .failed; throw writer.error ?? MediaError.writerFailed }

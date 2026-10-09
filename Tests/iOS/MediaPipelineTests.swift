@@ -1,5 +1,5 @@
 import XCTest
-import AVFoundation
+@preconcurrency import AVFoundation
 import MetalKit
 import WristMagicCore
 @testable import WristMagiciOS
@@ -33,7 +33,8 @@ final class MediaPipelineTests: XCTestCase {
       while !(try writer.append(buffer: pixel, pts: pts)) { await Task.yield() }
     }
     let url = try await writer.finish()
-    XCTAssertEqual(try await writer.finish(), url)
+    let repeated = try await writer.finish()
+    XCTAssertEqual(repeated, url)
     let report = try await ClipValidator.validate(url: url, expectedDuration: 2, requiresAudio: false)
     XCTAssertEqual(report.width, 720); XCTAssertEqual(report.height, 1280)
     XCTAssertFalse(report.hasAudio)
@@ -44,12 +45,19 @@ final class MediaPipelineTests: XCTestCase {
     writer.cancel(); writer.cancel()
     do { _ = try await writer.finish(); XCTFail("Cancelled writer succeeded") } catch {}
   }
-  @MainActor func testShareLeasePreventsPruneAndRecoveryUsesRealFiles() throws {
+  @MainActor func testShareLeasePreventsPruneAndRecoveryUsesRealFiles() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
     let store = try ClipStore(directory: root)
-    let source = Self.temp("store"); try Data([1,2,3]).write(to: source)
-    let record = try store.commit(tempURL: source, report: ClipReport(width: 720, height: 1280, duration: 2, hasAudio: false), interrupted: true)
+    let source = Self.temp("store")
+    let writer = try ClipWriter(url:source); let pixel = try Self.pixel()
+    try writer.start(at:.zero)
+    for i in 0..<60 {
+      while !(try writer.append(buffer:pixel,pts:CMTime(value:Int64(i),timescale:30))) { await Task.yield() }
+    }
+    _ = try await writer.finish()
+    let report = try await ClipValidator.validate(url:source,expectedDuration:2,requiresAudio:false)
+    let record = try store.commit(tempURL:source,report:report,interrupted:true)
     XCTAssertEqual(try ClipStore(directory: root).latestRecoverable()?.id, record.id)
     try store.acquire(record.id)
     try store.prune(now: Date().addingTimeInterval(8 * 86400))
@@ -133,5 +141,78 @@ extension MediaPipelineTests {
     let broken = EffectCue(eventID:UUID(),spell:.fireball,start:-1,seed:1,origin:.zero,direction:.zero)
     do { _ = try await ClipAudioMixer.mix(video:video,cues:[broken],soundEnabled:true); XCTFail("Expected failure") } catch {}
     XCTAssertTrue(FileManager.default.fileExists(atPath:video.path))
+  }
+}
+
+extension MediaPipelineTests {
+  @MainActor func testDecodedAACOnsetMatchesCueWithin80Milliseconds() async throws {
+    let writer = try ClipWriter(url:Self.temp("aac-onset")); let pixel = try Self.pixel()
+    try writer.start(at:.zero)
+    for i in 0..<60 { while !(try writer.append(buffer:pixel,pts:CMTime(value:Int64(i),timescale:30))) { await Task.yield() } }
+    let source = try await writer.finish(); defer { try? FileManager.default.removeItem(at:source) }
+    let cue = EffectCue(eventID:UUID(),spell:.lightning,start:0.7,seed:4,origin:.zero,direction:.zero)
+    let mixed = try await ClipAudioMixer.mix(video:source,cues:[cue],soundEnabled:true)
+    defer { try? FileManager.default.removeItem(at:mixed) }
+    let asset = AVURLAsset(url:mixed)
+    let audio = try await asset.loadTracks(withMediaType:.audio).first!
+    let formats = try await audio.load(.formatDescriptions)
+    XCTAssertEqual(CMFormatDescriptionGetMediaSubType(formats[0]),kAudioFormatMPEG4AAC)
+    let reader = try AVAssetReader(asset:asset)
+    let output = AVAssetReaderTrackOutput(track:audio,outputSettings:[AVFormatIDKey:kAudioFormatLinearPCM,AVLinearPCMIsFloatKey:true,AVLinearPCMBitDepthKey:32,AVLinearPCMIsNonInterleaved:false,AVSampleRateKey:48000,AVNumberOfChannelsKey:2])
+    reader.add(output); XCTAssertTrue(reader.startReading())
+    var onset: Double?
+    while let sample = output.copyNextSampleBuffer() {
+      guard let block = CMSampleBufferGetDataBuffer(sample) else { continue }
+      let count = CMBlockBufferGetDataLength(block) / MemoryLayout<Float>.size
+      var floats = [Float](repeating:0,count:count)
+      let status = floats.withUnsafeMutableBytes { CMBlockBufferCopyDataBytes(block,atOffset:0,dataLength:$0.count,destination:$0.baseAddress!) }
+      XCTAssertEqual(status,kCMBlockBufferNoErr)
+      if onset == nil, let index = floats.firstIndex(where:{abs($0) > 0.01}) {
+        onset = CMSampleBufferGetPresentationTimeStamp(sample).seconds + Double(index/2)/48000
+      }
+    }
+    XCTAssertEqual(reader.status,.completed)
+    XCTAssertNotNil(onset); XCTAssertEqual(onset ?? -1,0.7,accuracy:0.08)
+  }
+  @MainActor func testFirstGPUFrameStartsCaptureAndManualStopDiscardsBelowTwoSeconds() async throws {
+    guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("Metal unavailable") }
+    let renderer = try StageRenderer(); let pipeline = RenderCapturePipeline(renderer:renderer)
+    let url = Self.temp("first-frame"); try pipeline.prepare(url:url)
+    XCTAssertNil(pipeline.firstFrameTime)
+    var firstFrames = 0
+    pipeline.onFirstFrame = { timestamp,_ in XCTAssertEqual(timestamp,10); firstFrames += 1 }
+    let image = try Self.pixel()
+    pipeline.consume(image:image,displayTransform:.identity,viewProjection:matrix_identity_float4x4,timestamp:10)
+    let discarded = try await pipeline.finish()
+    XCTAssertNil(discarded); XCTAssertEqual(firstFrames,1)
+    XCTAssertFalse(FileManager.default.fileExists(atPath:url.path))
+  }
+  @MainActor func testCompleteSixSecondGeneratedClipHasH264AndDecodedTail() async throws {
+    let writer = try ClipWriter(url:Self.temp("sixseconds")); let pixel = try Self.pixel()
+    try writer.start(at:.zero)
+    for i in 0..<180 { while !(try writer.append(buffer:pixel,pts:CMTime(value:Int64(i),timescale:30))) { await Task.yield() } }
+    let url = try await writer.finish(); defer { try? FileManager.default.removeItem(at:url) }
+    let report = try await ClipValidator.validate(url:url,expectedDuration:6,requiresAudio:false)
+    XCTAssertEqual(report.duration,6,accuracy:0.15)
+    let track = try await AVURLAsset(url:url).loadTracks(withMediaType:.video).first!
+    let formats = try await track.load(.formatDescriptions)
+    XCTAssertEqual(CMFormatDescriptionGetMediaSubType(formats[0]),kCMVideoCodecType_H264)
+  }
+  @MainActor func testValidatedStoreRejectsChangedBytesAndPreservesLastGoodClip() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at:root) }
+    let store = try ClipStore(directory:root)
+    let writer = try ClipWriter(url:Self.temp("good")); let pixel = try Self.pixel()
+    try writer.start(at:.zero)
+    for i in 0..<60 { while !(try writer.append(buffer:pixel,pts:CMTime(value:Int64(i),timescale:30))) { await Task.yield() } }
+    let source = try await writer.finish()
+    let report = try await ClipValidator.validate(url:source,expectedDuration:2,requiresAudio:false)
+    let backup = Self.temp("corrupt"); try FileManager.default.copyItem(at:source,to:backup)
+    defer { try? FileManager.default.removeItem(at:backup) }
+    let good = try store.commit(tempURL:source,report:report)
+    try Data([1]).write(to:backup)
+    XCTAssertThrowsError(try store.commit(tempURL:backup,report:report))
+    XCTAssertEqual(store.latestRecoverable()?.id,good.id)
+    XCTAssertTrue(FileManager.default.fileExists(atPath:good.url.path))
   }
 }

@@ -1,10 +1,15 @@
-import AVFoundation
+@preconcurrency import AVFoundation
+import CryptoKit
 
 struct ClipReport: Codable, Sendable {
   let width: Int
   let height: Int
   let duration: Double
   let hasAudio: Bool
+  let validatedSHA256: String?
+  init(width: Int, height: Int, duration: Double, hasAudio: Bool, validatedSHA256: String? = nil) {
+    self.width = width; self.height = height; self.duration = duration; self.hasAudio = hasAudio; self.validatedSHA256 = validatedSHA256
+  }
   var valid: Bool { width == 720 && height == 1280 && duration.isFinite && duration >= 2 && duration <= 6.15 }
 }
 enum ClipValidator {
@@ -35,6 +40,6 @@ enum ClipValidator {
       last = pts; samples += 1
     }
     guard reader.status == .completed, samples >= 2, last.seconds >= duration - 0.15 else { throw reader.error ?? MediaError.invalidClip }
-    return report
+    return ClipReport(width:report.width,height:report.height,duration:report.duration,hasAudio:report.hasAudio,validatedSHA256:SHA256.hash(data:try Data(contentsOf:url)).description)
   }
 }
