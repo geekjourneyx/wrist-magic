@@ -37,6 +37,7 @@ public enum LinkError: Error { case unavailable, notInstalled, timeout, invalidR
     guard envelope.isValid else { throw LinkError.invalidEnvelope }
     guard available else { throw LinkError.unavailable }
     let data = try JSONEncoder().encode(envelope)
+    let started = ProcessInfo.processInfo.systemUptime
     return try await withTaskCancellationHandler {
       try await withCheckedThrowingContinuation { continuation in
         guard pending[envelope.eventID] == nil else { continuation.resume(throwing: LinkError.invalidEnvelope); return }
@@ -47,8 +48,11 @@ public enum LinkError: Error { case unavailable, notInstalled, timeout, invalidR
           do {
             try await Task.sleep(for: .milliseconds(300))
             guard let self, pending[envelope.eventID] != nil else { return }
-            if exchanges[envelope.eventID]?.advance(now: ProcessInfo.processInfo.systemUptime) == .retry, available { transmit(data, request: envelope) }
-            try await Task.sleep(for: .milliseconds(500))
+            let step = exchanges[envelope.eventID]?.advance(now: ProcessInfo.processInfo.systemUptime)
+            if step == .timeout { finish(envelope.eventID, result: .failure(LinkError.timeout)); return }
+            if step == .retry, available { transmit(data, request: envelope) }
+            let remaining = max(0, 0.8 - (ProcessInfo.processInfo.systemUptime - started))
+            try await Task.sleep(for: .seconds(remaining))
             finish(envelope.eventID, result: .failure(LinkError.timeout))
           } catch { }
         }
@@ -80,6 +84,10 @@ public enum LinkError: Error { case unavailable, notInstalled, timeout, invalidR
   }
   private func reportAvailability() {
     if !available { cancelPending() }
+    guard session.activationState == .activated else {
+      onAvailability?(false, "正在激活连接")
+      return
+    }
     #if os(iOS)
     let installed = session.isWatchAppInstalled
     #else
@@ -93,6 +101,7 @@ public enum LinkError: Error { case unavailable, notInstalled, timeout, invalidR
     settingsRevision = settings.revision
   }
   nonisolated public func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
+    self.session(session, didReceiveApplicationContext: session.receivedApplicationContext)
     Task { @MainActor [weak self] in self?.reportAvailability() }
   }
   nonisolated public func sessionReachabilityDidChange(_ session: WCSession) {
