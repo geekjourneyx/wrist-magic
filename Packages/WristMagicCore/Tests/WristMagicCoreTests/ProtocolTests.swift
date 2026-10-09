@@ -77,6 +77,12 @@ final class ProtocolTests: XCTestCase {
       WireEnvelope.decode(Data(text.replacingOccurrences(of: "\"hello\"", with: "\"future\"").utf8))
     )
   }
+  func testCompleteCastPayloadRejectsNonfiniteEncoding() {
+    let permit = SessionPermit(sessionID: session, token: UUID(), spell: .fireball)
+    for charge in [Double.nan, Double.infinity, -Double.infinity] {
+      XCTAssertThrowsError(try JSONEncoder().encode(CastPayload(permit: permit, charge: charge)))
+    }
+  }
   func testCacheBoundAndReset() {
     var gate = EventGate(sessionID: session)
     let first = envelope(SelectPayload(spell: .fireball), kind: .select)

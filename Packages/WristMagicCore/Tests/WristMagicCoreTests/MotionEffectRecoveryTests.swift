@@ -64,6 +64,62 @@ final class MotionEffectRecoveryTests: XCTestCase {
     XCTAssertNil(trigger.update(sample: sample(2.66, SIMD3(0, 0, 8)), state: ready, now: 2.66))
     XCTAssertEqual(trigger.update(sample: sample(2.68), state: ready, now: 2.68)?.accepted, true)
   }
+  func testSensorDiscontinuityRequiresFreshNeutralWithRegularCallerClock() {
+    for discontinuousSensorTime in [0.1, 2.0] {
+      var trigger = GestureTrigger(profiles: [.fireball: .experimental(.fireball)])
+      let ready = CastState(spell: .fireball, phase: .ready, charge: 1)
+      for i in 0...19 {
+        let t = Double(i) / 50
+        XCTAssertNil(trigger.update(sample: sample(t), state: ready, now: t))
+      }
+      XCTAssertNil(trigger.update(sample: sample(discontinuousSensorTime), state: ready, now: 0.4))
+      XCTAssertNil(
+        trigger.update(
+          sample: sample(discontinuousSensorTime + 0.02, SIMD3(0, 0, 8)), state: ready, now: 0.42))
+      XCTAssertNil(
+        trigger.update(sample: sample(discontinuousSensorTime + 0.04), state: ready, now: 0.44))
+      for i in 0...22 {
+        let offset = Double(i) / 50
+        XCTAssertNil(
+          trigger.update(
+            sample: sample(discontinuousSensorTime + 0.06 + offset), state: ready,
+            now: 0.46 + offset))
+      }
+      XCTAssertNil(
+        trigger.update(
+          sample: sample(discontinuousSensorTime + 0.52, SIMD3(0, 0, 8)), state: ready, now: 0.92))
+      XCTAssertEqual(
+        trigger.update(sample: sample(discontinuousSensorTime + 0.54), state: ready, now: 0.94)?
+          .accepted, true)
+    }
+  }
+  func testAcquisitionErrorsCannotUnlatchContinuousReadyCycle() {
+    for invalidSample in [false, true] {
+      var trigger = GestureTrigger(profiles: [.fireball: .experimental(.fireball)])
+      let ready = CastState(spell: .fireball, phase: .ready, charge: 1)
+      for i in 0...22 {
+        let t = Double(i) / 50
+        XCTAssertNil(trigger.update(sample: sample(t), state: ready, now: t))
+      }
+      XCTAssertNil(trigger.update(sample: sample(0.46, SIMD3(0, 0, 8)), state: ready, now: 0.46))
+      XCTAssertEqual(trigger.update(sample: sample(0.48), state: ready, now: 0.48)?.accepted, true)
+      if invalidSample {
+        XCTAssertNil(trigger.update(sample: sample(0.5, SIMD3(.nan, 0, 0)), state: ready, now: 0.5))
+      }
+      // Invalid input is followed by regular samples; the other case introduces a gap.
+      let start = invalidSample ? 0.52 : 2.0
+      let count = invalidSample ? 100 : 22
+      for i in 0...count {
+        let t = start + Double(i) / 50
+        XCTAssertNil(trigger.update(sample: sample(t), state: ready, now: t))
+      }
+      let impulseTime = start + Double(count + 1) / 50
+      XCTAssertNil(
+        trigger.update(sample: sample(impulseTime, SIMD3(0, 0, 8)), state: ready, now: impulseTime))
+      XCTAssertNil(
+        trigger.update(sample: sample(impulseTime + 0.02), state: ready, now: impulseTime + 0.02))
+    }
+  }
   func testEffectTimingDeterminismAndLayout() {
     let cue = EffectCue(
       eventID: UUID(), spell: .lightning, start: 10, seed: 42, origin: .zero,
@@ -85,6 +141,8 @@ final class MotionEffectRecoveryTests: XCTestCase {
         AppFailure.background, .linkLost, .trackingLost, .cameraInterrupted, .thermal,
       ] {
         let action = RecoveryPolicy.transition(error: failure, phase: phase)
+        XCTAssertFalse(action.canAcceptCast)
+        XCTAssertFalse(action.automaticallyResume)
         XCTAssertTrue(action.pause)
         XCTAssertTrue(action.revokePermit)
         XCTAssertTrue(action.releaseResources)

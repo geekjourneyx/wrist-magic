@@ -113,6 +113,7 @@ public struct GestureTrigger: Sendable {
   private var samples: [MotionSample] = []
   private var neutralStart: Double?
   private var lastTime: Double?
+  private var lastSampleTime: Double?
   private var lastFire: Double?
   private var latched = false
   public let profiles: [SpellID: GestureProfile]
@@ -122,32 +123,38 @@ public struct GestureTrigger: Sendable {
     self.gate = gate
   }
   public mutating func reset() {
+    resetAcquisition()
+    latched = false
+  }
+  private mutating func resetAcquisition() {
     samples = []
     neutralStart = nil
     lastTime = nil
-    latched = false
+    lastSampleTime = nil
   }
   public mutating func update(sample: MotionSample, state: CastState, now: Double)
     -> GestureDecision?
   {
-    guard now.isFinite, sample.isValid else {
+    guard state.phase == .ready, state.charge == 1, let profile = profiles[state.spell] else {
       reset()
       return nil
     }
-    if let last = lastTime, now <= last || now - last > 0.2 { reset() }
-    lastTime = now
-    guard state.phase == .ready, state.charge == 1, let profile = profiles[state.spell] else {
-      samples = []
-      neutralStart = nil
-      latched = false
+    guard now.isFinite, sample.isValid else {
+      resetAcquisition()
       return nil
     }
+    if let last = lastTime, now <= last || now - last > 0.2 { resetAcquisition() }
+    if let last = lastSampleTime, sample.t <= last || sample.t - last > 0.2 {
+      resetAcquisition()
+    }
+    lastTime = now
+    lastSampleTime = sample.t
     guard !latched, lastFire.map({ now - $0 >= 0.7 }) ?? true else { return nil }
     if samples.isEmpty {
       let magnitude = sqrt((sample.acceleration * sample.acceleration).array.reduce(0, +))
       if magnitude <= (profile.values["neutral"] ?? 0) {
-        if neutralStart == nil { neutralStart = now }
-        if now - neutralStart! >= 0.4 { samples = [sample] }
+        if neutralStart == nil { neutralStart = sample.t }
+        if sample.t - neutralStart! >= 0.4 { samples = [sample] }
       } else {
         neutralStart = nil
       }
