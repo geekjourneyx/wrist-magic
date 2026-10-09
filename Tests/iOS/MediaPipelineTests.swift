@@ -106,15 +106,23 @@ extension MediaPipelineTests {
     let projection = simd_float4x4(SIMD4(1,0,0,0),SIMD4(0,1,0,0),SIMD4(0,0,1,0),SIMD4(0,0,0,1))
     func render(_ spell: SpellID) async throws -> Data {
       let cue = EffectCue(eventID:UUID(),spell:spell,start:0,seed:7,origin:SIMD3(0,0,0),direction:SIMD3(0.4,0,0))
-      let buffer: CVPixelBuffer = try await withCheckedThrowingContinuation { continuation in
+      let pixels: Data = try await withCheckedThrowingContinuation { continuation in
         do {
-          let accepted = try renderer.submit(image:camera,displayTransform:.identity,viewProjection:projection,time:0.3,effects:[cue]) { continuation.resume(with:$0) }
+          let accepted = try renderer.submit(image:camera,displayTransform:.identity,viewProjection:projection,time:0.3,effects:[cue]) { result in
+            switch result {
+            case .failure(let error): continuation.resume(throwing:error)
+            case .success(let buffer):
+              CVPixelBufferLockBaseAddress(buffer,.readOnly)
+              let pixels = Data(bytes:CVPixelBufferGetBaseAddress(buffer)!,count:CVPixelBufferGetDataSize(buffer))
+              CVPixelBufferUnlockBaseAddress(buffer,.readOnly)
+              continuation.resume(returning:pixels)
+            }
+          }
           if !accepted { continuation.resume(throwing:MediaError.gpu) }
         } catch { continuation.resume(throwing:error) }
       }
       XCTAssertEqual(renderer.framesInFlight,0)
-      CVPixelBufferLockBaseAddress(buffer,.readOnly); defer { CVPixelBufferUnlockBaseAddress(buffer,.readOnly) }
-      return Data(bytes:CVPixelBufferGetBaseAddress(buffer)!,count:CVPixelBufferGetDataSize(buffer))
+      return pixels
     }
     let fire = try await render(.fireball); let lightning = try await render(.lightning); let push = try await render(.forcePush)
     XCTAssertNotEqual(fire,lightning); XCTAssertNotEqual(fire,push); XCTAssertNotEqual(lightning,push)
