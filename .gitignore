@@ -1,0 +1,7 @@
+.build/
+DerivedData/
+*.xcresult/
+xcuserdata/
+.superpowers/
+.DS_Store
+Evidence/runs/
