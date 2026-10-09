@@ -17,7 +17,7 @@ import WristMagicCore
 @MainActor final class RenderCapturePipeline {
   let renderer: any FrameRendering
   private(set) var writer: (any ClipWriting)?
-  private let makeWriter: (URL) throws -> any ClipWriting
+  private let makeWriter: @MainActor (URL) throws -> any ClipWriting
   private(set) var firstFrameTime: Double?
   private(set) var lastFrameTime: Double?
   private(set) var cues: [EffectCue] = []
@@ -30,7 +30,7 @@ import WristMagicCore
   var onFirstFrame: ((_ arTimestamp: Double, _ receiverUptime: Double) -> Void)?
   var onDurationReached: (() -> Void)?
   var onError: ((Error) -> Void)?
-  init(renderer: any FrameRendering, makeWriter: @escaping (URL) throws -> any ClipWriting = { try ClipWriter(url:$0) }) { self.renderer = renderer; self.makeWriter = makeWriter }
+  init(renderer: any FrameRendering, makeWriter: @escaping @MainActor (URL) throws -> any ClipWriting = { try ClipWriter(url:$0) }) { self.renderer = renderer; self.makeWriter = makeWriter }
   func prepare(url: URL) throws {
     guard !recording, !closing, pendingGPU == 0 else { throw MediaError.invalidState }
     generation += 1; writer = try makeWriter(url)
