@@ -81,3 +81,57 @@ final class MediaPipelineTests: XCTestCase {
   }
   private static func temp(_ name: String) -> URL { FileManager.default.temporaryDirectory.appendingPathComponent("\(name)-\(UUID()).partial") }
 }
+
+extension MediaPipelineTests {
+  @MainActor func testCuePlacedAtVideoTimeWithin80MillisecondsAndMute() throws {
+    let cue = EffectCue(eventID:UUID(),spell:.lightning,start:0.4,seed:7,origin:.zero,direction:SIMD3(0,0,-1))
+    let samples = try ClipAudioMixer.renderedSamples(cues:[cue],duration:2)
+    let onset = samples.firstIndex(where:{ abs($0) > 0.005 })!
+    XCTAssertEqual(Double(onset)/48000,0.4,accuracy:0.08)
+    XCTAssertTrue(samples.prefix(19200).allSatisfy {$0 == 0})
+    XCTAssertLessThanOrEqual(samples.map{abs($0)}.max()!,0.95)
+  }
+  @MainActor func testSharedGPUFrameHasDistinctSpellPixelsAndBoundedBuffers() async throws {
+    guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("Metal unavailable on this simulator") }
+    let renderer = try StageRenderer()
+    let camera = try Self.pixel()
+    let projection = simd_float4x4(SIMD4(1,0,0,0),SIMD4(0,1,0,0),SIMD4(0,0,1,0),SIMD4(0,0,0,1))
+    func render(_ spell: SpellID) async throws -> Data {
+      let cue = EffectCue(eventID:UUID(),spell:spell,start:0,seed:7,origin:SIMD3(0,0,0),direction:SIMD3(0.4,0,0))
+      let buffer: CVPixelBuffer = try await withCheckedThrowingContinuation { continuation in
+        do {
+          let accepted = try renderer.submit(image:camera,displayTransform:.identity,viewProjection:projection,time:0.3,effects:[cue]) { continuation.resume(with:$0) }
+          if !accepted { continuation.resume(throwing:MediaError.gpu) }
+        } catch { continuation.resume(throwing:error) }
+      }
+      XCTAssertEqual(renderer.framesInFlight,0)
+      CVPixelBufferLockBaseAddress(buffer,.readOnly); defer { CVPixelBufferUnlockBaseAddress(buffer,.readOnly) }
+      return Data(bytes:CVPixelBufferGetBaseAddress(buffer)!,count:CVPixelBufferGetDataSize(buffer))
+    }
+    let fire = try await render(.fireball); let lightning = try await render(.lightning); let push = try await render(.forcePush)
+    XCTAssertNotEqual(fire,lightning); XCTAssertNotEqual(fire,push); XCTAssertNotEqual(lightning,push)
+    var accepted = 0
+    for _ in 0..<12 {
+      if try renderer.submit(image:camera,displayTransform:.identity,viewProjection:projection,time:0,effects:[],completion:{_ in}) { accepted += 1 }
+    }
+    XCTAssertEqual(accepted,3); XCTAssertEqual(renderer.framesInFlight,3)
+  }
+  @MainActor func testAudioFailureKeepsSourceAndMuteHasNoTrack() async throws {
+    let writer = try ClipWriter(url:Self.temp("audio")); let pixel = try Self.pixel()
+    try writer.start(at:.zero)
+    for i in 0..<60 {
+      while !(try writer.append(buffer:pixel,pts:CMTime(value:Int64(i),timescale:30))) { await Task.yield() }
+    }
+    let video = try await writer.finish(); defer { try? FileManager.default.removeItem(at:video) }
+    let cue = EffectCue(eventID:UUID(),spell:.fireball,start:0.4,seed:1,origin:.zero,direction:.zero)
+    let muted = try await ClipAudioMixer.mix(video:video,cues:[cue],soundEnabled:false)
+    XCTAssertEqual(muted,video)
+    _ = try await ClipValidator.validate(url:muted,expectedDuration:2,requiresAudio:false)
+    let mixed = try await ClipAudioMixer.mix(video:video,cues:[cue],soundEnabled:true)
+    defer { try? FileManager.default.removeItem(at:mixed) }
+    _ = try await ClipValidator.validate(url:mixed,expectedDuration:2,requiresAudio:true)
+    let broken = EffectCue(eventID:UUID(),spell:.fireball,start:-1,seed:1,origin:.zero,direction:.zero)
+    do { _ = try await ClipAudioMixer.mix(video:video,cues:[broken],soundEnabled:true); XCTFail("Expected failure") } catch {}
+    XCTAssertTrue(FileManager.default.fileExists(atPath:video.path))
+  }
+}

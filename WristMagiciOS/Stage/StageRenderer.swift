@@ -15,7 +15,7 @@ import WristMagicCore
   private var cache: CVMetalTextureCache!
   private let composite: MTLRenderPipelineState
   private let present: MTLRenderPipelineState
-  private var slots: [CVPixelBuffer] = []
+  private var pool: CVPixelBufferPool!
   private var busy: Set<Int> = []
   weak var preview: MTKView?
   var reducedMotion = false
@@ -32,11 +32,8 @@ import WristMagicCore
     }
     composite = try pipeline("composite"); present = try pipeline("present")
     guard CVMetalTextureCacheCreate(nil, nil, device, nil, &cache) == kCVReturnSuccess else { throw MediaError.gpu }
-    for _ in 0..<3 {
-      var buffer: CVPixelBuffer?
-      guard CVPixelBufferCreate(nil,720,1280,kCVPixelFormatType_32BGRA,[kCVPixelBufferMetalCompatibilityKey:true,kCVPixelBufferIOSurfacePropertiesKey:[:]] as CFDictionary,&buffer) == kCVReturnSuccess, let buffer else { throw MediaError.pixelBuffer }
-      slots.append(buffer)
-    }
+    guard CVPixelBufferPoolCreate(nil, [kCVPixelBufferPoolMinimumBufferCountKey:3] as CFDictionary,
+      [kCVPixelBufferWidthKey:720,kCVPixelBufferHeightKey:1280,kCVPixelBufferPixelFormatTypeKey:kCVPixelFormatType_32BGRA,kCVPixelBufferMetalCompatibilityKey:true,kCVPixelBufferIOSurfacePropertiesKey:[:]] as CFDictionary, &pool) == kCVReturnSuccess else { throw MediaError.pixelBuffer }
     precondition(MemoryLayout<EffectParameters>.stride == 64 && MemoryLayout<EffectParameters>.alignment == 16)
   }
   func attach(preview: MTKView) {
@@ -59,9 +56,13 @@ import WristMagicCore
   }
   @discardableResult func submit(image: CVPixelBuffer, displayTransform: CGAffineTransform, viewProjection: simd_float4x4, time: Double, effects: [EffectCue], completion: @escaping @MainActor (Result<CVPixelBuffer, Error>) -> Void) throws -> Bool {
     guard let slot = (0..<3).first(where: { !busy.contains($0) }) else { return false }
+    var buffer: CVPixelBuffer?
+    let status = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(nil,pool,[kCVPixelBufferPoolAllocationThresholdKey:3] as CFDictionary,&buffer)
+    if status == kCVReturnWouldExceedAllocationThreshold { return false }
+    guard status == kCVReturnSuccess, let buffer else { throw MediaError.pixelBuffer }
     busy.insert(slot); framesInFlight = busy.count
     do {
-      try encode(image: image, displayTransform: displayTransform, viewProjection: viewProjection, time: time, effects: effects, target: slots[slot]) { [self] result in
+      try encode(image: image, displayTransform: displayTransform, viewProjection: viewProjection, time: time, effects: effects, target: buffer) { [self] result in
         self.busy.remove(slot); self.framesInFlight = self.busy.count
         completion(result)
       }
