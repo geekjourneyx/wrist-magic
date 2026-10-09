@@ -27,7 +27,13 @@ final class SharedRenderExportTests: XCTestCase {
     guard let buffer = device.makeBuffer(length:rowBytes*1280,options:.storageModeShared), let queue = device.makeCommandQueue(), let command = queue.makeCommandBuffer(), let blit = command.makeBlitCommandEncoder() else {throw MediaError.gpu}
     blit.copy(from:texture,sourceSlice:0,sourceLevel:0,sourceOrigin:MTLOrigin(x:0,y:0,z:0),sourceSize:MTLSize(width:720,height:1280,depth:1),to:buffer,destinationOffset:0,destinationBytesPerRow:rowBytes,destinationBytesPerImage:rowBytes*1280)
     blit.endEncoding()
-    await withCheckedContinuation { (continuation:CheckedContinuation<Void,Never>) in command.addCompletedHandler {_ in continuation.resume()}; command.commit() }
+    let _:Void = try await MediaTestSupport.callback { complete in
+      command.addCompletedHandler { completed in
+        let success = completed.status == .completed
+        Task { @MainActor in complete(success ? .success(()) : .failure(MediaError.gpu)) }
+      }
+      command.commit()
+    }
     guard command.status == .completed else {throw MediaError.gpu}
     return PixelSnapshot(bytes:Data(bytes:buffer.contents(),count:rowBytes*1280),rowBytes:rowBytes)
   }
@@ -61,21 +67,26 @@ final class SharedRenderExportTests: XCTestCase {
       let writer = try ClipWriter(url:url); try writer.start(at:.zero)
       var expected:[Int:PixelSnapshot] = [:]
       let cue = EffectCue(eventID:UUID(),spell:spell,start:0,seed:27,origin:.zero,direction:SIMD3(0.4,0,0))
+      var previousDrawable: (any CAMetalDrawable)?
       for index in 0..<60 {
-        while !writer.ready {await Task.yield()}
+        try await MediaTestSupport.waitUntilReady(writer)
         // MTKView caches currentDrawable for this frame. Retain the actual presented texture.
         guard let drawable = preview.currentDrawable else {throw MediaError.gpu}
-        let pixels:PixelSnapshot = try await withCheckedThrowingContinuation { continuation in
+        if let previousDrawable {
+          XCTAssertNotEqual(ObjectIdentifier(previousDrawable as AnyObject),ObjectIdentifier(drawable as AnyObject),"Renderer must release the previous cached drawable")
+        }
+        previousDrawable = drawable
+        let pixels:PixelSnapshot = try await MediaTestSupport.callback { complete in
           do {
             let accepted = try renderer.submit(image:camera,displayTransform:.identity,viewProjection:matrix_identity_float4x4,time:Double(index)/30,effects:[cue]) { result in
               do {
                 let buffer = try result.get()
                 guard try writer.append(buffer:buffer,pts:CMTime(value:Int64(index),timescale:30)) else {throw MediaError.writerFailed}
-                continuation.resume(returning:Self.pixels(buffer))
-              } catch {continuation.resume(throwing:error)}
+                complete(.success(Self.pixels(buffer)))
+              } catch {complete(.failure(error))}
             }
-            if !accepted {continuation.resume(throwing:MediaError.gpu)}
-          } catch {continuation.resume(throwing:error)}
+            if !accepted {complete(.failure(MediaError.gpu))}
+          } catch {complete(.failure(error))}
         }
         if references.contains(index) {
           expected[index] = pixels
@@ -83,10 +94,8 @@ final class SharedRenderExportTests: XCTestCase {
           XCTAssertLessThanOrEqual(Self.regionError(pixels,presented,effectRegion:true),2,"\(spell) preview at\(index)")
           XCTAssertLessThanOrEqual(Self.regionError(pixels,presented,effectRegion:false),2)
         }
-        // Release MTKView's cached frame so the next submit obtains a new drawable.
-        preview.releaseDrawables()
       }
-      let finished = try await writer.finish(); defer {try? FileManager.default.removeItem(at:finished)}
+      let finished = try await MediaTestSupport.deadline { try await writer.finish() }; defer {try? FileManager.default.removeItem(at:finished)}
       _ = try await ClipValidator.validate(url:finished,expectedDuration:2,requiresAudio:false)
       let asset = AVURLAsset(url:finished)
       guard let track = try await asset.loadTracks(withMediaType:.video).first else {throw MediaError.invalidClip}
@@ -112,17 +121,17 @@ final class SharedRenderExportTests: XCTestCase {
     let renderer = try StageRenderer(); let camera = try Self.camera()
     var retained:[CVPixelBuffer] = []
     func render(_ spell:SpellID) async throws -> PixelSnapshot {
-      try await withCheckedThrowingContinuation { continuation in
+      try await MediaTestSupport.callback { complete in
         do {
           let cue = EffectCue(eventID:UUID(),spell:spell,start:0,seed:8,origin:.zero,direction:SIMD3(0.4,0,0))
           let accepted = try renderer.submit(image:camera,displayTransform:.identity,viewProjection:matrix_identity_float4x4,time:0.3,effects:[cue]) { result in
             switch result {
-            case .failure(let error):continuation.resume(throwing:error)
-            case .success(let buffer): retained.append(buffer); continuation.resume(returning:Self.pixels(buffer))
+            case .failure(let error):complete(.failure(error))
+            case .success(let buffer): retained.append(buffer); complete(.success(Self.pixels(buffer)))
             }
           }
-          if !accepted {continuation.resume(throwing:MediaError.gpu)}
-        } catch {continuation.resume(throwing:error)}
+          if !accepted {complete(.failure(MediaError.gpu))}
+        } catch {complete(.failure(error))}
       }
     }
     let original = try await render(.fireball)

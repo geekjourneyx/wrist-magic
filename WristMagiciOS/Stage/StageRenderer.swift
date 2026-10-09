@@ -106,7 +106,8 @@ import WristMagicCore
     encoder.setFragmentBytes(&uniforms,length:MemoryLayout<FrameUniforms>.stride,index:0)
     parameters.withUnsafeBytes { encoder.setFragmentBytes($0.baseAddress!,length:$0.count,index:1) }
     encoder.drawPrimitives(type:.triangle,vertexStart:0,vertexCount:3); encoder.endEncoding()
-    if let preview, let drawable = preview.currentDrawable {
+    let drawable = preview?.currentDrawable
+    if let drawable {
       let display = MTLRenderPassDescriptor(); display.colorAttachments[0].texture = drawable.texture
       display.colorAttachments[0].loadAction = .dontCare; display.colorAttachments[0].storeAction = .store
       if let encoder = command.makeRenderCommandEncoder(descriptor:display) {
@@ -116,10 +117,14 @@ import WristMagicCore
     }
     command.addCompletedHandler { completed in
       // Keep CoreVideo texture wrappers and the camera image alive until GPU completion.
-      _ = (camera.0,chroma.0,output.0,image)
+      _ = (camera.0,chroma.0,output.0,image,drawable)
       let success = completed.status == .completed
       Task { @MainActor in completion(success ? .success(target) : .failure(MediaError.gpu)) }
     }
     command.commit()
+    // Manual/paused MTKView drawing does not clear its cached drawable for us.
+    // The command's completion handler retains this frame through GPU completion;
+    // clear only MTKView's cache now so another in-flight frame gets a fresh drawable.
+    if drawable != nil { preview?.releaseDrawables() }
   }
 }

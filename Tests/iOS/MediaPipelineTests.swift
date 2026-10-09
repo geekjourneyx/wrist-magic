@@ -30,10 +30,10 @@ final class MediaPipelineTests: XCTestCase {
     XCTAssertThrowsError(try writer.append(buffer: pixel, pts: .zero))
     for i in 1..<60 {
       let pts = CMTime(value: Int64(i), timescale: 30)
-      while !(try writer.append(buffer: pixel, pts: pts)) { await Task.yield() }
+      try await MediaTestSupport.append(writer,buffer:pixel,pts:pts)
     }
-    let url = try await writer.finish()
-    let repeated = try await writer.finish()
+    let url = try await MediaTestSupport.deadline { try await writer.finish() }
+    let repeated = try await MediaTestSupport.deadline { try await writer.finish() }
     XCTAssertEqual(repeated, url)
     let report = try await ClipValidator.validate(url: url, expectedDuration: 2, requiresAudio: false)
     XCTAssertEqual(report.width, 720); XCTAssertEqual(report.height, 1280)
@@ -43,7 +43,7 @@ final class MediaPipelineTests: XCTestCase {
   @MainActor func testWriterFailureNeverReturnsSuccessURL() async throws {
     let writer = try ClipWriter(url: Self.temp("cancel"))
     writer.cancel(); writer.cancel()
-    do { _ = try await writer.finish(); XCTFail("Cancelled writer succeeded") } catch {}
+    do { _ = try await MediaTestSupport.deadline { try await writer.finish() }; XCTFail("Cancelled writer succeeded") } catch { XCTAssertTrue(error is CancellationError) }
   }
   @MainActor func testShareLeasePreventsPruneAndRecoveryUsesRealFiles() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -53,9 +53,9 @@ final class MediaPipelineTests: XCTestCase {
     let writer = try ClipWriter(url:source); let pixel = try Self.pixel()
     try writer.start(at:.zero)
     for i in 0..<60 {
-      while !(try writer.append(buffer:pixel,pts:CMTime(value:Int64(i),timescale:30))) { await Task.yield() }
+      try await MediaTestSupport.append(writer,buffer:pixel,pts:CMTime(value:Int64(i),timescale:30))
     }
-    _ = try await writer.finish()
+    _ = try await MediaTestSupport.deadline { try await writer.finish() }
     let report = try await ClipValidator.validate(url:source,expectedDuration:2,requiresAudio:false)
     let record = try store.commit(tempURL:source,report:report,interrupted:true)
     XCTAssertEqual(try ClipStore(directory: root).latestRecoverable()?.id, record.id)
@@ -106,20 +106,20 @@ extension MediaPipelineTests {
     let projection = simd_float4x4(SIMD4(1,0,0,0),SIMD4(0,1,0,0),SIMD4(0,0,1,0),SIMD4(0,0,0,1))
     func render(_ spell: SpellID) async throws -> Data {
       let cue = EffectCue(eventID:UUID(),spell:spell,start:0,seed:7,origin:SIMD3(0,0,0),direction:SIMD3(0.4,0,0))
-      let pixels: Data = try await withCheckedThrowingContinuation { continuation in
+      let pixels: Data = try await MediaTestSupport.callback { complete in
         do {
           let accepted = try renderer.submit(image:camera,displayTransform:.identity,viewProjection:projection,time:0.3,effects:[cue]) { result in
             switch result {
-            case .failure(let error): continuation.resume(throwing:error)
+            case .failure(let error): complete(.failure(error))
             case .success(let buffer):
               CVPixelBufferLockBaseAddress(buffer,.readOnly)
               let pixels = Data(bytes:CVPixelBufferGetBaseAddress(buffer)!,count:CVPixelBufferGetDataSize(buffer))
               CVPixelBufferUnlockBaseAddress(buffer,.readOnly)
-              continuation.resume(returning:pixels)
+              complete(.success(pixels))
             }
           }
-          if !accepted { continuation.resume(throwing:MediaError.gpu) }
-        } catch { continuation.resume(throwing:error) }
+          if !accepted { complete(.failure(MediaError.gpu)) }
+        } catch { complete(.failure(error)) }
       }
       XCTAssertEqual(renderer.framesInFlight,0)
       return pixels
@@ -136,18 +136,18 @@ extension MediaPipelineTests {
     let writer = try ClipWriter(url:Self.temp("audio")); let pixel = try Self.pixel()
     try writer.start(at:.zero)
     for i in 0..<60 {
-      while !(try writer.append(buffer:pixel,pts:CMTime(value:Int64(i),timescale:30))) { await Task.yield() }
+      try await MediaTestSupport.append(writer,buffer:pixel,pts:CMTime(value:Int64(i),timescale:30))
     }
-    let video = try await writer.finish(); defer { try? FileManager.default.removeItem(at:video) }
+    let video = try await MediaTestSupport.deadline { try await writer.finish() }; defer { try? FileManager.default.removeItem(at:video) }
     let cue = EffectCue(eventID:UUID(),spell:.fireball,start:0.4,seed:1,origin:.zero,direction:.zero)
-    let muted = try await ClipAudioMixer.mix(video:video,cues:[cue],soundEnabled:false)
+    let muted = try await MediaTestSupport.deadline { try await ClipAudioMixer.mix(video:video,cues:[cue],soundEnabled:false) }
     XCTAssertEqual(muted,video)
     _ = try await ClipValidator.validate(url:muted,expectedDuration:2,requiresAudio:false)
-    let mixed = try await ClipAudioMixer.mix(video:video,cues:[cue],soundEnabled:true)
+    let mixed = try await MediaTestSupport.deadline { try await ClipAudioMixer.mix(video:video,cues:[cue],soundEnabled:true) }
     defer { try? FileManager.default.removeItem(at:mixed) }
     _ = try await ClipValidator.validate(url:mixed,expectedDuration:2,requiresAudio:true)
     let broken = EffectCue(eventID:UUID(),spell:.fireball,start:-1,seed:1,origin:.zero,direction:.zero)
-    do { _ = try await ClipAudioMixer.mix(video:video,cues:[broken],soundEnabled:true); XCTFail("Expected failure") } catch {}
+    do { _ = try await MediaTestSupport.deadline { try await ClipAudioMixer.mix(video:video,cues:[broken],soundEnabled:true) }; XCTFail("Expected failure") } catch { XCTAssertTrue(error is MediaError) }
     XCTAssertTrue(FileManager.default.fileExists(atPath:video.path))
   }
 }
@@ -156,10 +156,10 @@ extension MediaPipelineTests {
   @MainActor func testDecodedAACOnsetMatchesCueWithin80Milliseconds() async throws {
     let writer = try ClipWriter(url:Self.temp("aac-onset")); let pixel = try Self.pixel()
     try writer.start(at:.zero)
-    for i in 0..<60 { while !(try writer.append(buffer:pixel,pts:CMTime(value:Int64(i),timescale:30))) { await Task.yield() } }
-    let source = try await writer.finish(); defer { try? FileManager.default.removeItem(at:source) }
+    for i in 0..<60 { try await MediaTestSupport.append(writer,buffer:pixel,pts:CMTime(value:Int64(i),timescale:30)) }
+    let source = try await MediaTestSupport.deadline { try await writer.finish() }; defer { try? FileManager.default.removeItem(at:source) }
     let cue = EffectCue(eventID:UUID(),spell:.lightning,start:0.7,seed:4,origin:.zero,direction:.zero)
-    let mixed = try await ClipAudioMixer.mix(video:source,cues:[cue],soundEnabled:true)
+    let mixed = try await MediaTestSupport.deadline { try await ClipAudioMixer.mix(video:source,cues:[cue],soundEnabled:true) }
     defer { try? FileManager.default.removeItem(at:mixed) }
     let asset = AVURLAsset(url:mixed)
     let audio = try await asset.loadTracks(withMediaType:.audio).first!
@@ -191,15 +191,15 @@ extension MediaPipelineTests {
     pipeline.onFirstFrame = { timestamp,_ in XCTAssertEqual(timestamp,10); firstFrames += 1 }
     let image = try Self.pixel()
     pipeline.consume(image:image,displayTransform:.identity,viewProjection:matrix_identity_float4x4,timestamp:10)
-    let discarded = try await pipeline.finish()
+    let discarded = try await MediaTestSupport.deadline { try await pipeline.finish() }
     XCTAssertNil(discarded); XCTAssertEqual(firstFrames,1)
     XCTAssertFalse(FileManager.default.fileExists(atPath:url.path))
   }
   @MainActor func testCompleteSixSecondGeneratedClipHasH264AndDecodedTail() async throws {
     let writer = try ClipWriter(url:Self.temp("sixseconds")); let pixel = try Self.pixel()
     try writer.start(at:.zero)
-    for i in 0..<180 { while !(try writer.append(buffer:pixel,pts:CMTime(value:Int64(i),timescale:30))) { await Task.yield() } }
-    let url = try await writer.finish(); defer { try? FileManager.default.removeItem(at:url) }
+    for i in 0..<180 { try await MediaTestSupport.append(writer,buffer:pixel,pts:CMTime(value:Int64(i),timescale:30)) }
+    let url = try await MediaTestSupport.deadline { try await writer.finish() }; defer { try? FileManager.default.removeItem(at:url) }
     let report = try await ClipValidator.validate(url:url,expectedDuration:6,requiresAudio:false)
     XCTAssertEqual(report.duration,6,accuracy:0.15)
     let track = try await AVURLAsset(url:url).loadTracks(withMediaType:.video).first!
@@ -212,8 +212,8 @@ extension MediaPipelineTests {
     let store = try ClipStore(directory:root)
     let writer = try ClipWriter(url:Self.temp("good")); let pixel = try Self.pixel()
     try writer.start(at:.zero)
-    for i in 0..<60 { while !(try writer.append(buffer:pixel,pts:CMTime(value:Int64(i),timescale:30))) { await Task.yield() } }
-    let source = try await writer.finish()
+    for i in 0..<60 { try await MediaTestSupport.append(writer,buffer:pixel,pts:CMTime(value:Int64(i),timescale:30)) }
+    let source = try await MediaTestSupport.deadline { try await writer.finish() }
     let report = try await ClipValidator.validate(url:source,expectedDuration:2,requiresAudio:false)
     let backup = Self.temp("corrupt"); try FileManager.default.copyItem(at:source,to:backup)
     defer { try? FileManager.default.removeItem(at:backup) }
@@ -237,8 +237,8 @@ extension MediaPipelineTests {
     let store = try ClipStore(directory:root)
     let writer = try ClipWriter(url:Self.temp("space")); let pixel = try Self.pixel()
     try writer.start(at:.zero)
-    for i in 0..<60 { while !(try writer.append(buffer:pixel,pts:CMTime(value:Int64(i),timescale:30))) { await Task.yield() } }
-    let source = try await writer.finish()
+    for i in 0..<60 { try await MediaTestSupport.append(writer,buffer:pixel,pts:CMTime(value:Int64(i),timescale:30)) }
+    let source = try await MediaTestSupport.deadline { try await writer.finish() }
     let report = try await ClipValidator.validate(url:source,expectedDuration:2,requiresAudio:false)
     let retry = Self.temp("retry"); try FileManager.default.copyItem(at:source,to:retry)
     defer { try? FileManager.default.removeItem(at:retry) }

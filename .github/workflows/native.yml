@@ -4,6 +4,9 @@ on:
     branches: [main, feat/native-mvp]
   pull_request:
   workflow_dispatch:
+concurrency:
+  group: native-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   native:
     runs-on: macos-15
@@ -40,8 +43,10 @@ jobs:
                   out.write(f"{name}_SIMULATOR_UDID={candidates[0]['udid']}\n")
           PY
       - name: iOS simulator tests
+        timeout-minutes: 10
         run: scripts/test-ios.sh
       - name: Watch simulator tests
+        timeout-minutes: 10
         run: scripts/test-watch.sh
       - uses: actions/upload-artifact@v4
         if: always()
